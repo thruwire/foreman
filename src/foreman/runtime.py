@@ -25,7 +25,8 @@ from foreman.models import (
 from foreman.observation import ObservationBuilder
 from foreman.persistence import RunStore
 from foreman.policy import FactoryPolicy
-from foreman.workers import CodexWorker, Worker
+from foreman.steering import build_steering_message
+from foreman.workers import CodexAppServerWorker, CodexWorker, Worker
 from foreman.workers.codex import mission_for
 
 EventSink = Callable[[FactoryEvent], object]
@@ -79,6 +80,11 @@ class FactoryRuntime:
 
     def _codex_factory(self, worker_type: WorkerType) -> Worker:
         del worker_type
+        if self.config.codex_backend == "app-server":
+            return CodexAppServerWorker(
+                output_limit=self.config.output_limit,
+                graceful_termination_seconds=self.config.graceful_termination_seconds,
+            )
         return CodexWorker(
             output_limit=self.config.output_limit,
             graceful_termination_seconds=self.config.graceful_termination_seconds,
@@ -281,6 +287,38 @@ class FactoryRuntime:
             return
         if action is InterventionType.START_VERIFIER:
             await self.start_worker(WorkerType.VERIFIER)
+            return
+        if action is InterventionType.STEER_WORKER:
+            worker_id = intervention.worker_id or (
+                self.state.active_workers[0] if self.state.active_workers else None
+            )
+            if worker_id is None or worker_id not in self._workers:
+                return
+            record = self._worker(worker_id)
+            assessment = self.state.latest_assessment
+            if assessment is None:
+                return
+            message = build_steering_message(assessment)
+            record.steer_count += 1
+            record.steering_history.append(message)
+            steered = await self._workers[worker_id].steer(message)
+            if steered:
+                record.last_steered_at = datetime.now(UTC)
+                event_type = EventType.WORKER_STEERED
+            else:
+                event_type = EventType.WORKER_STEER_FAILED
+                self.state.errors.append(f"{worker_id}: active-turn steering was not accepted")
+            self.state.touch()
+            self.store.save_state(self.state)
+            await self.emit(
+                event_type,
+                {
+                    "worker_id": worker_id,
+                    "message": message,
+                    "assessment_iteration": intervention.assessment_iteration,
+                },
+                notify_foreman=False,
+            )
             return
         if action is InterventionType.STOP_WORKER:
             worker_id = intervention.worker_id or (

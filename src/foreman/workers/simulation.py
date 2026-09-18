@@ -27,6 +27,7 @@ class FakeWorker:
         self.wait_forever = wait_forever
         self._stop = asyncio.Event()
         self._termination_reason: str | None = None
+        self.steering_messages: list[str] = []
 
     async def run(
         self,
@@ -87,3 +88,9 @@ class FakeWorker:
     async def terminate(self, reason: str) -> None:
         self._termination_reason = reason
         self._stop.set()
+
+    async def steer(self, message: str) -> bool:
+        if self._stop.is_set():
+            return False
+        self.steering_messages.append(message)
+        return True

@@ -1,8 +1,19 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+def _environment_bool(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"invalid boolean environment value: {value!r}")
 
 
 class FactoryConfig(BaseModel):
@@ -18,6 +29,10 @@ class FactoryConfig(BaseModel):
     max_workers: int = Field(default=3, ge=1)
     max_retries: int = Field(default=1, ge=0)
     max_iterations: int = Field(default=20, ge=1)
+    codex_backend: Literal["app-server", "exec"] = "app-server"
+    steering_enabled: bool = True
+    max_steers_per_worker: int = Field(default=1, ge=0)
+    steering_grace_seconds: float = Field(default=30.0, ge=0.0)
 
     human_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     off_track_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
@@ -36,7 +51,7 @@ class FactoryConfig(BaseModel):
 
     @classmethod
     def from_environment(cls) -> FactoryConfig:
-        mapping: dict[str, tuple[str, type]] = {
+        mapping: dict[str, tuple[str, Callable[[str], object]]] = {
             "FOREMAN_ASSESSMENT_MIN_INTERVAL_SECONDS": (
                 "assessment_min_interval_seconds",
                 float,
@@ -48,6 +63,13 @@ class FactoryConfig(BaseModel):
             "FOREMAN_MAX_WORKERS": ("max_workers", int),
             "FOREMAN_MAX_RETRIES": ("max_retries", int),
             "FOREMAN_MAX_ITERATIONS": ("max_iterations", int),
+            "FOREMAN_CODEX_BACKEND": ("codex_backend", str),
+            "FOREMAN_STEERING_ENABLED": (
+                "steering_enabled",
+                _environment_bool,
+            ),
+            "FOREMAN_MAX_STEERS_PER_WORKER": ("max_steers_per_worker", int),
+            "FOREMAN_STEERING_GRACE_SECONDS": ("steering_grace_seconds", float),
         }
         values: dict[str, object] = {}
         for env_name, (field_name, converter) in mapping.items():

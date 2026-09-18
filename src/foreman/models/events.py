@@ -12,6 +12,8 @@ class EventType(StrEnum):
     FACTORY_STARTED = "FACTORY_STARTED"
     WORKER_STARTED = "WORKER_STARTED"
     WORKER_OUTPUT = "WORKER_OUTPUT"
+    WORKER_STEERED = "WORKER_STEERED"
+    WORKER_STEER_FAILED = "WORKER_STEER_FAILED"
     WORKER_COMPLETED = "WORKER_COMPLETED"
     WORKER_FAILED = "WORKER_FAILED"
     WORKER_STOPPED = "WORKER_STOPPED"
@@ -31,6 +33,7 @@ class InterventionType(StrEnum):
     CONTINUE = "CONTINUE"
     START_WORKER = "START_WORKER"
     START_VERIFIER = "START_VERIFIER"
+    STEER_WORKER = "STEER_WORKER"
     STOP_WORKER = "STOP_WORKER"
     RETRY_WORKER = "RETRY_WORKER"
     FINISH = "FINISH"
@@ -55,4 +58,3 @@ class FactoryEvent(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     event_type: EventType
     payload: dict[str, Any] = Field(default_factory=dict)
-

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from foreman.config import FactoryConfig
 from foreman.models import (
     FactoryAssessment,
@@ -47,19 +49,46 @@ def test_start_verifier(state, assessment) -> None:
 def test_stop_off_track_worker(state, assessment) -> None:
     active(state)
     value = with_scores(assessment, work_off_track=0.95)
-    result = FactoryPolicy(FactoryConfig()).decide(state, value)
+    result = FactoryPolicy(FactoryConfig(codex_backend="exec")).decide(state, value)
     assert result.action is InterventionType.STOP_WORKER
     assert result.worker_id == "worker-1"
 
 
 def test_stop_stuck_then_retry(state, assessment) -> None:
     active(state)
-    policy = FactoryPolicy(FactoryConfig())
+    policy = FactoryPolicy(FactoryConfig(steering_enabled=False))
     stopped = policy.decide(state, with_scores(assessment, worker_stuck=0.95))
     assert stopped.action is InterventionType.STOP_WORKER
     state.active_workers.clear()
     state.latest_intervention = stopped
     assert policy.decide(state, assessment).action is InterventionType.RETRY_WORKER
+
+
+def test_steer_stuck_worker_before_stopping(state, assessment) -> None:
+    active(state)
+    policy = FactoryPolicy(FactoryConfig(steering_grace_seconds=0))
+    value = with_scores(assessment, meaningful_progress=0.1, worker_stuck=0.95)
+
+    steered = policy.decide(state, value)
+    assert steered.action is InterventionType.STEER_WORKER
+    assert steered.worker_id == "worker-1"
+
+    worker = state.workers[0]
+    worker.steer_count = 1
+    worker.last_steered_at = datetime.now(UTC)
+    stopped = policy.decide(state, value)
+    assert stopped.action is InterventionType.STOP_WORKER
+
+
+def test_post_steering_grace_period_allows_worker_to_continue(state, assessment) -> None:
+    active(state)
+    worker = state.workers[0]
+    worker.steer_count = 1
+    worker.last_steered_at = datetime.now(UTC)
+    value = with_scores(assessment, worker_stuck=0.95)
+
+    result = FactoryPolicy(FactoryConfig(steering_grace_seconds=30)).decide(state, value)
+    assert result.action is InterventionType.CONTINUE
 
 
 def test_finish(state, assessment) -> None:

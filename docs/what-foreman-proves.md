@@ -11,8 +11,8 @@ software or superiority over another agent system.
    failures, prior decisions, and elapsed time are compacted before assessment.
 3. **Probabilistic judgments can safely drive a small action vocabulary.** A deterministic policy
    gates model scores with thresholds, lifecycle history, and resource limits.
-4. **A supervisor can intervene before worker completion.** Stop and retry paths operate on a live
-   subprocess abstraction.
+4. **A supervisor can intervene before worker completion.** Jev-informed guidance can enter an
+   active Codex turn; repeated stuckness still reaches stop and retry paths.
 5. **Independent verification can be a policy outcome rather than a hard-coded workflow step.** It
    starts only when the semantic evidence crosses the verification boundary and cannot loop.
 6. **The experiment can be inspected.** State and an append-only event timeline reconstruct what the
@@ -45,4 +45,3 @@ changes can be replayed, and false positive/negative interventions can be counte
 A convincing evaluation would need a representative job set, blinded outcome labels, baselines,
 cost and latency measurements, calibration curves for each dimension, and intervention ablations.
 This V1 supplies the runtime and evidence trail for that later work.
-

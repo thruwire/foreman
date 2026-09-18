@@ -35,6 +35,11 @@ class WorkerRecord(BaseModel):
     stdout: str = ""
     stderr: str = ""
     termination_reason: str | None = None
+    codex_thread_id: str | None = None
+    codex_turn_id: str | None = None
+    steer_count: int = Field(default=0, ge=0)
+    last_steered_at: datetime | None = None
+    steering_history: list[str] = Field(default_factory=list)
 
     @property
     def duration_seconds(self) -> float | None:

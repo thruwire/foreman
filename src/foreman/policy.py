@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 from foreman.config import FactoryConfig
 from foreman.models import (
@@ -39,19 +40,31 @@ class FactoryPolicy:
         if state.iteration >= state.max_iterations:
             return result(InterventionType.ESCALATE, "maximum Foreman iterations reached")
 
-        if active_id and assessment.work_off_track >= self.config.off_track_threshold:
-            return result(
-                InterventionType.STOP_WORKER,
-                "active worker appears off track",
-                active_id,
-            )
-
-        if active_id and assessment.worker_stuck >= self.config.stuck_threshold:
-            return result(
-                InterventionType.STOP_WORKER,
-                "active worker appears stuck",
-                active_id,
-            )
+        if active_id:
+            off_track = assessment.work_off_track >= self.config.off_track_threshold
+            stuck = assessment.worker_stuck >= self.config.stuck_threshold
+            if off_track or stuck:
+                worker = next(item for item in state.workers if item.worker_id == active_id)
+                reason = (
+                    "active worker appears off track"
+                    if off_track and assessment.work_off_track >= assessment.worker_stuck
+                    else "active worker appears stuck"
+                )
+                if worker.last_steered_at is not None:
+                    since_steer = (datetime.now(UTC) - worker.last_steered_at).total_seconds()
+                    if since_steer < self.config.steering_grace_seconds:
+                        return result(
+                            InterventionType.CONTINUE,
+                            "active worker is within the post-steering grace period",
+                            active_id,
+                        )
+                if (
+                    self.config.steering_enabled
+                    and self.config.codex_backend == "app-server"
+                    and worker.steer_count < self.config.max_steers_per_worker
+                ):
+                    return result(InterventionType.STEER_WORKER, reason, active_id)
+                return result(InterventionType.STOP_WORKER, reason, active_id)
 
         if (
             not active_id

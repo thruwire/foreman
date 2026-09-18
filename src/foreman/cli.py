@@ -177,7 +177,10 @@ def inspect_run(
             ]:
                 console.print(f"       {label:<16} {float(assessment[key]):.2f}")
         elif event.event_type is EventType.FOREMAN_INTERVENED:
-            console.print(f"       {payload.get('action')}")
+            console.print(f"       {payload.get('action')}: {payload.get('reason', '')}")
+        elif event.event_type in {EventType.WORKER_STEERED, EventType.WORKER_STEER_FAILED}:
+            label = "steered" if event.event_type is EventType.WORKER_STEERED else "steer failed"
+            console.print(f"{prefix}  {payload.get('worker_id')} {label}")
         elif event.event_type in {
             EventType.FACTORY_FINISHED,
             EventType.FACTORY_ESCALATED,

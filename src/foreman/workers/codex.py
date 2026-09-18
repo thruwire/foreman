@@ -163,6 +163,11 @@ class CodexWorker:
                 process.kill()
             await process.wait()
 
+    async def steer(self, message: str) -> bool:
+        # Non-interactive `codex exec` has no active-turn input channel.
+        del message
+        return False
+
 
 def mission_for(worker_type: WorkerType, job: str) -> str:
     if worker_type is WorkerType.VERIFIER:

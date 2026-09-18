@@ -60,6 +60,12 @@ class TerminalRenderer:
         elif event.event_type is EventType.FOREMAN_INTERVENED:
             self.console.print("Decision")
             self.console.print(f"  [bold]{payload.get('action')}[/bold]")
+            self.console.print(f"  {payload.get('reason', '')}")
+        elif event.event_type is EventType.WORKER_STEERED:
+            self.console.print(f"Guidance sent to {payload.get('worker_id')}:")
+            self.console.print(payload.get("message", ""))
+        elif event.event_type is EventType.WORKER_STEER_FAILED:
+            self.console.print(f"Could not steer {payload.get('worker_id')}; monitoring continues.")
         elif event.event_type is EventType.FACTORY_FINISHED:
             self.console.print("Factory complete.")
         elif event.event_type is EventType.FACTORY_ESCALATED:

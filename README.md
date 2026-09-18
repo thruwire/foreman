@@ -31,7 +31,7 @@ required.
                     ready_to_finish          .21
                                   │
                                   ▼
-                       continue / stop / retry
+                    continue / steer / stop / retry
                          verify / finish
 ```
 
@@ -46,6 +46,7 @@ conventional coding-agent harness.
 - [Why Jev fits the experiment](docs/why-jev.md)
 - [What Foreman is proving](docs/what-foreman-proves.md)
 - [Runtime and event flow](docs/runtime.md)
+- [Live steering](docs/steering.md)
 
 ## What is Foreman?
 
@@ -86,16 +87,20 @@ rebuilding the coding agent itself.
 
 ## The factory floor
 
-V1 runs one coding worker at a time. A real worker is an installed Codex CLI process launched with:
+V1 runs one coding worker at a time. By default, a real worker is a Codex App Server thread and
+turn launched over its JSONL protocol:
 
 ```text
-codex exec --cd <repository> --sandbox workspace-write --color never --json <mission>
+codex app-server --listen stdio://
+thread/start → turn/start → turn/steer or turn/interrupt
 ```
 
-This follows the official Codex CLI's stable, non-interactive `exec` interface. JSONL stdout and
-stderr are streamed concurrently, bounded in memory, persisted as factory events, and made visible
-to Foreman before the worker exits. A verifier is another Codex worker with an independent,
-deterministic verification mission.
+The App Server transport keeps the active Codex thread addressable, allowing Foreman to send a
+supervisory update into an in-flight turn. App Server notifications and stderr are bounded in
+memory, persisted as factory events, and made visible to Foreman before the worker exits. A verifier
+is another Codex worker with an independent, deterministic verification mission. The prior stable
+`codex exec` transport remains available through `FOREMAN_CODEX_BACKEND=exec`, but it cannot accept
+live steering.
 
 The worker implementation is replaceable; the runtime depends on a small worker protocol rather
 than Codex-specific types.
@@ -144,14 +149,16 @@ Jev only assesses. A deterministic Python policy decides which action is permitt
 - `CONTINUE`: let an active worker keep working.
 - `START_WORKER`: begin a coding pass because work remains.
 - `START_VERIFIER`: launch one independent verification pass.
+- `STEER_WORKER`: send Jev-informed guidance into the active Codex turn.
 - `STOP_WORKER`: gracefully terminate a stuck or off-track process.
 - `RETRY_WORKER`: launch a fresh coding worker after a stopped attempt.
 - `FINISH`: declare the job complete.
 - `ESCALATE`: stop autonomous work and request human attention.
 
 The ordering is safety-first: human need, iteration bounds, off-track/stuck workers, retry handling,
-completion, verification, then continued work. State tracks whether verification already started and
-completed so the policy cannot oscillate into repeated verifier loops.
+completion, verification, then continued work. A worker that crosses the stuck or off-track
+threshold is steered once by default. It receives a grace period before a repeated high score causes
+Foreman to stop it. State tracks steering and verification so policy does not oscillate.
 
 Default policy thresholds are:
 
@@ -192,6 +199,7 @@ invent one. Its minimum assessment interval defaults to five seconds and is conf
 
 - Python 3.11 or newer.
 - The [Codex CLI](https://learn.chatgpt.com/docs/developer-commands?surface=cli) on `PATH`.
+- A Codex CLI version that provides `codex app-server` for live steering.
 - Codex authentication (`codex login`, then verify with `codex login status`).
 - A TypeSafe API key for real runs. The deterministic demo and tests need neither service.
 
@@ -270,6 +278,10 @@ The most useful environment overrides are:
 | `FOREMAN_MAX_WORKERS` | `3` | Total workers, including verifier |
 | `FOREMAN_MAX_RETRIES` | `1` | Fresh attempts after a stop |
 | `FOREMAN_MAX_ITERATIONS` | `20` | Semantic decision ceiling |
+| `FOREMAN_CODEX_BACKEND` | `app-server` | `app-server` for steering or `exec` fallback |
+| `FOREMAN_STEERING_ENABLED` | `true` | Allow Jev-informed active-turn guidance |
+| `FOREMAN_MAX_STEERS_PER_WORKER` | `1` | Steering attempts before stop/retry |
+| `FOREMAN_STEERING_GRACE_SECONDS` | `30` | Time to recover before another intervention |
 
 Policy thresholds and observation bounds are typed `FactoryConfig` fields and can be configured by
 applications embedding Foreman.
@@ -287,10 +299,10 @@ the complete simulated factory, and a stuck-worker recovery scenario.
 
 ## Process safety and security
 
-Foreman enforces worker, retry, iteration, worker-timeout, overall-timeout, and concurrency limits.
-Workers receive only the supplied repository as their working root. Stop requests first terminate
-the subprocess group gracefully, then kill it after a bounded grace period. Ctrl-C cancels the run,
-terminates active workers, and persists a final cancelled state.
+Foreman enforces steering, worker, retry, iteration, worker-timeout, overall-timeout, and concurrency
+limits. Workers receive only the supplied repository as their working root. Stop requests first
+interrupt the active App Server turn, then terminate the process after a bounded grace period.
+Ctrl-C cancels the run, terminates active workers, and persists a final cancelled state.
 
 Codex still runs with the permissions of the local environment. `workspace-write` is requested, but
 Foreman is not a security sandbox and does not make untrusted repositories safe. Review Codex's
@@ -302,6 +314,7 @@ configuration and the repository before running it.
 - False positives can stop useful workers; false negatives can allow bad work to continue.
 - Repository observations are necessarily incomplete and bounded.
 - Codex remains responsible for software-engineering reasoning and tool use.
+- Codex App Server is currently experimental and its protocol may change between CLI releases.
 - V1 runs one coding worker at a time.
 - Local execution is not isolated.
 - Persistence is useful for inspection, not production-grade durable execution.

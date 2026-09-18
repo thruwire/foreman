@@ -37,6 +37,7 @@ def config(**updates) -> FactoryConfig:
         "max_workers": 3,
         "max_retries": 1,
         "max_iterations": 10,
+        "steering_grace_seconds": 0,
     }
     values.update(updates)
     return FactoryConfig(**values)
@@ -97,12 +98,19 @@ async def test_full_simulated_factory_assesses_live_and_verifies(tmp_path) -> No
 
 
 @pytest.mark.asyncio
-async def test_stuck_worker_is_stopped_retried_verified_and_finished(tmp_path) -> None:
+async def test_stuck_worker_is_steered_stopped_retried_verified_and_finished(tmp_path) -> None:
     model = FakeForemanModel(
         [
             score(meaningful_progress=0.8),
             score(meaningful_progress=0.1, worker_stuck=0.95),
             score(meaningful_progress=0.1, worker_stuck=0.95),
+            score(
+                implementation_complete=0.95,
+                tests_sufficient=0.85,
+                requirements_satisfied=0.9,
+                needs_verification=0.9,
+                ready_to_finish=0.6,
+            ),
             score(
                 implementation_complete=0.95,
                 tests_sufficient=0.85,
@@ -142,9 +150,11 @@ async def test_stuck_worker_is_stopped_retried_verified_and_finished(tmp_path) -
     assert state.retry_count == 1
     assert len(state.workers) == 3
     actions = [item.action.value for item in state.intervention_history]
+    assert "STEER_WORKER" in actions
     assert "STOP_WORKER" in actions
     assert "RETRY_WORKER" in actions
     events = RunStore(tmp_path).load_events(state.run_id)
+    assert any(event.event_type is EventType.WORKER_STEERED for event in events)
     assert any(event.event_type is EventType.WORKER_STOPPED for event in events)
 
 
