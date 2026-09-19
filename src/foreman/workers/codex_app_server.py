@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from foreman.models import EventType, WorkerRecord, WorkerStatus
-from foreman.workers.base import EventCallback
+from foreman.version import __version__
+from foreman.workers.base import EventCallback, codex_environment
 
 
 class CodexAppServerError(RuntimeError):
@@ -241,6 +242,7 @@ class CodexAppServerWorker:
         self.process = await asyncio.create_subprocess_exec(
             *self.command(),
             cwd=repository,
+            env=codex_environment(),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -254,7 +256,7 @@ class CodexAppServerWorker:
                 "clientInfo": {
                     "name": "foreman",
                     "title": "Foreman",
-                    "version": "0.1.0",
+                    "version": __version__,
                 }
             },
         )

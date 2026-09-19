@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from foreman import __version__
 from foreman.models import EventType, WorkerRecord, WorkerStatus, WorkerType
 from foreman.workers import CodexAppServerWorker, CodexWorker, FakeWorker
 
@@ -161,12 +162,36 @@ async def test_codex_worker_streams_both_pipes(monkeypatch, tmp_path) -> None:
     assert {event["stream"] for event in events} == {"stdout", "stderr"}
 
 
+@pytest.mark.asyncio
+async def test_codex_worker_filters_typesafe_environment(monkeypatch, tmp_path) -> None:
+    process = Process(b"", b"")
+    subprocess_kwargs = {}
+
+    async def create(*args, **kwargs):
+        subprocess_kwargs.update(kwargs)
+        return process
+
+    monkeypatch.setenv("TYPESAFE_API_KEY", "secret")
+    monkeypatch.setenv("TYPESAFE_INTERNAL_TOKEN", "also-secret")
+    monkeypatch.setenv("FOREMAN_TEST_VALUE", "preserved")
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
+
+    async def emit(*args) -> None:
+        return None
+
+    await CodexWorker().run(record(), tmp_path, emit, 1)
+
+    assert subprocess_kwargs["env"]["FOREMAN_TEST_VALUE"] == "preserved"
+    assert not any(name.startswith("TYPESAFE_") for name in subprocess_kwargs["env"])
+
+
 class AppServerStdin:
     def __init__(self, process) -> None:
         self.process = process
 
     def write(self, data: bytes) -> None:
         message = json.loads(data)
+        self.process.messages.append(message)
         request_id = message.get("id")
         if request_id is None:
             return
@@ -199,6 +224,7 @@ class AppServerProcess:
         self.returncode = None
         self.pid = 12346
         self._finished = asyncio.Event()
+        self.messages = []
 
     def feed(self, message: dict) -> None:
         self.stdout.feed_data(f"{json.dumps(message)}\n".encode())
@@ -225,10 +251,15 @@ class AppServerProcess:
 @pytest.mark.asyncio
 async def test_app_server_worker_runs_turn_to_completion(monkeypatch, tmp_path) -> None:
     process = AppServerProcess()
+    subprocess_kwargs = {}
 
     async def create(*args, **kwargs):
+        subprocess_kwargs.update(kwargs)
         return process
 
+    monkeypatch.setenv("TYPESAFE_API_KEY", "secret")
+    monkeypatch.setenv("TYPESAFE_INTERNAL_TOKEN", "also-secret")
+    monkeypatch.setenv("FOREMAN_TEST_VALUE", "preserved")
     monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
     worker_record = record()
     worker = CodexAppServerWorker()
@@ -252,6 +283,9 @@ async def test_app_server_worker_runs_turn_to_completion(monkeypatch, tmp_path) 
     assert result.status is WorkerStatus.COMPLETED
     assert result.codex_thread_id == "thread-1"
     assert result.codex_turn_id == "turn-1"
+    assert subprocess_kwargs["env"]["FOREMAN_TEST_VALUE"] == "preserved"
+    assert not any(name.startswith("TYPESAFE_") for name in subprocess_kwargs["env"])
+    assert process.messages[0]["params"]["clientInfo"]["version"] == __version__
 
 
 @pytest.mark.asyncio

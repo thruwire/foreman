@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from foreman.models import EventType, WorkerRecord, WorkerStatus, WorkerType
-from foreman.workers.base import EventCallback
+from foreman.workers.base import EventCallback, codex_environment
 
 
 def coding_mission(job: str) -> str:
@@ -105,6 +105,7 @@ class CodexWorker:
             self.process = await asyncio.create_subprocess_exec(
                 *self.command(repository, record.mission),
                 cwd=repository,
+                env=codex_environment(),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=True,

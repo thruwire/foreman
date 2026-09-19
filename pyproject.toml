@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "foreman-factory"
-version = "0.1.0"
+version = "0.3.0"
 description = "A semantic supervisory loop for coding agents"
 readme = "README.md"
 requires-python = ">=3.11"

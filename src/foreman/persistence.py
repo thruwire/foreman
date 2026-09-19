@@ -115,7 +115,9 @@ class RunStore:
             return []
         states: list[FactoryState] = []
         paths = sorted(
-            self.runs_dir.iterdir(), key=lambda item: item.stat().st_mtime, reverse=True
+            self.runs_dir.iterdir(),
+            key=lambda item: (item.stat().st_mtime, item.name),
+            reverse=True,
         )
         for path in paths:
             try:

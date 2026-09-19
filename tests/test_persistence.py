@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -80,6 +82,28 @@ def test_list_states_skips_malformed_run(state, tmp_path) -> None:
     broken.mkdir()
     (broken / "state.json").write_text(json.dumps({"no": "state"}), encoding="utf-8")
     assert list(store.list_states()) == [state]
+
+
+def test_list_states_breaks_equal_mtime_ties_by_run_id(state, tmp_path, monkeypatch) -> None:
+    store = RunStore(tmp_path)
+    first = state.model_copy(update={"run_id": "aaa"})
+    second = state.model_copy(update={"run_id": "zzz"})
+    store.initialize(first)
+    store.initialize(second)
+
+    tied_mtime = 1_700_000_000
+    os.utime(store.run_dir(first.run_id), (tied_mtime, tied_mtime))
+    os.utime(store.run_dir(second.run_id), (tied_mtime, tied_mtime))
+    original_iterdir = Path.iterdir
+
+    def iterdir(path):
+        if path == store.runs_dir:
+            return iter([store.run_dir(first.run_id), store.run_dir(second.run_id)])
+        return original_iterdir(path)
+
+    monkeypatch.setattr(Path, "iterdir", iterdir)
+
+    assert [listed.run_id for listed in store.list_states()] == ["zzz", "aaa"]
 
 
 def test_initialize_locally_excludes_runtime_directory(state, tmp_path) -> None:
