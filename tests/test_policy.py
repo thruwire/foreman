@@ -8,6 +8,7 @@ from foreman.models import (
     Intervention,
     InterventionType,
     WorkerRecord,
+    WorkerStatus,
     WorkerType,
 )
 from foreman.policy import FactoryPolicy
@@ -101,6 +102,33 @@ def test_finish(state, assessment) -> None:
         tests_sufficient=0.95,
     )
     assert FactoryPolicy(FactoryConfig()).decide(state, ready).action is InterventionType.FINISH
+
+
+def test_finish_after_successful_verification_only_worker(state, assessment) -> None:
+    worker = WorkerRecord(
+        worker_id="worker-1",
+        worker_type=WorkerType.CODING,
+        mission="verification-only smoke test",
+        status=WorkerStatus.COMPLETED,
+    )
+    state.workers.append(worker)
+    state.completed_workers.append(worker.worker_id)
+    state.iteration = 9
+    observed = with_scores(
+        assessment,
+        implementation_complete=0.77,
+        requirements_satisfied=0.79,
+        tests_sufficient=0.92,
+        needs_verification=0.39,
+        ready_to_finish=0.78,
+        needs_human=0.11,
+        worker_stuck=0.04,
+        work_off_track=0.11,
+    )
+
+    result = FactoryPolicy(FactoryConfig()).decide(state, observed)
+
+    assert result.action is InterventionType.FINISH
 
 
 def test_escalate(state, assessment) -> None:
