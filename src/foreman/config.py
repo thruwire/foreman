@@ -36,6 +36,7 @@ class FactoryConfig(BaseModel):
 
     human_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     off_track_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
+    agents_drift_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     stuck_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     verification_threshold: float = Field(default=0.65, ge=0.0, le=1.0)
     finish_threshold: float = Field(default=0.75, ge=0.0, le=1.0)

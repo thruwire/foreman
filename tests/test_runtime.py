@@ -20,6 +20,7 @@ def human_assessment() -> FactoryAssessment:
         meaningful_progress=0,
         worker_stuck=0,
         work_off_track=0,
+        agents_md_drift=0,
         ready_to_finish=0,
         needs_human=1,
     )

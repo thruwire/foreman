@@ -7,9 +7,12 @@ for additional input during a turn.
 ## Decision flow
 
 1. Foreman builds the same bounded factory observation used for every assessment.
-2. Jev scores `worker_stuck`, `work_off_track`, `meaningful_progress`, and the other dimensions.
+2. Jev compares the live evidence with any repository-root `AGENTS.override.md` or `AGENTS.md`
+   instructions and scores `agents_md_drift`, `worker_stuck`, `work_off_track`,
+   `meaningful_progress`, and the other dimensions.
 3. The deterministic policy checks safety limits and the worker's steering history.
-4. The first stuck or off-track result at the configured threshold selects `STEER_WORKER`.
+4. The first AGENTS.md drift, stuck, or off-track result at the configured threshold selects
+   `STEER_WORKER`.
 5. Foreman translates the scores into a bounded instruction and calls App Server `turn/steer` with
    the recorded thread and turn identifiers.
 6. The worker receives a grace period. If the warning remains high afterward, policy stops it and
@@ -17,6 +20,9 @@ for additional input during a turn.
 
 Jev does not directly write the steering prompt or control the process. It supplies probabilities;
 ordinary Python selects an allowed action and deterministically formats the guidance.
+
+Repository instructions are read from the target repository for each observation, passed only in
+the transient Jev request, and are not copied into source code or persisted in factory state.
 
 ## State and observability
 

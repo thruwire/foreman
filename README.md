@@ -27,6 +27,7 @@ required.
                     worker_stuck             .02
                     needs_verification       .82
                     work_off_track           .06
+                    agents_md_drift          .01
                     meaningful_progress      .94
                     ready_to_finish          .21
                                   │
@@ -112,13 +113,15 @@ Each observation is compact and bounded. It contains:
 - the original job and current factory status;
 - active worker summaries, recent worker history, output tails, exit status, and elapsed time;
 - `git status`, a bounded diff, and changed file names;
+- bounded repository-root `AGENTS.override.md` or `AGENTS.md` instructions when present;
 - verification results and recent persisted events;
 - the prior assessment and intervention;
 - attempt/failure counts and elapsed factory time.
 
-Foreman never dumps the repository into Jev. Defaults are a 20,000-character diff, 12,000
-characters per captured output tail, 30 recent events, and 10 workers of history. The limits live in
-`FactoryConfig` and can be changed for experiments.
+Foreman never dumps the repository into Jev. Repository instructions are read for each observation
+and included only in the transient Jev request; their contents are not persisted in factory state.
+Defaults are a 20,000-character diff, 12,000 characters per captured output tail, 30 recent events,
+and 10 workers of history. The limits live in `FactoryConfig` and can be changed for experiments.
 
 ## What Foreman assesses
 
@@ -131,14 +134,16 @@ The first five dimensions describe the **overall job**:
 - `needs_verification`: probability that an independent verification pass is warranted.
 - `ready_to_finish`: probability that the factory should consider the job complete.
 
-The remaining four describe the **factory floor now**:
+The remaining five describe the **factory floor now**:
 
 - `meaningful_progress`: probability that the current or latest worker is advancing the job.
 - `worker_stuck`: probability that the worker is looping, repeatedly failing, or unable to advance.
 - `work_off_track`: probability that work is drifting from the original job or is unrelated.
+- `agents_md_drift`: probability that the worker's behavior or repository work is materially
+  inconsistent with the target repository's root `AGENTS.override.md` or `AGENTS.md` instructions.
 - `needs_human`: probability that judgment, credentials, clarification, or permission is needed.
 
-Every dimension is one Jev `Noul` question, whose result is the probability of “yes.” All nine are
+Every dimension is one Jev `Noul` question, whose result is the probability of “yes.” All ten are
 sent in one request. Values are validated, normalized to `[0, 1]`, stored in `state.json`, and
 recorded in the event timeline.
 
@@ -155,10 +160,11 @@ Jev only assesses. A deterministic Python policy decides which action is permitt
 - `FINISH`: declare the job complete.
 - `ESCALATE`: stop autonomous work and request human attention.
 
-The ordering is safety-first: human need, iteration bounds, off-track/stuck workers, retry handling,
-completion, verification, then continued work. A worker that crosses the stuck or off-track
-threshold is steered once by default. It receives a grace period before a repeated high score causes
-Foreman to stop it. State tracks steering and verification so policy does not oscillate.
+The ordering is safety-first: human need, iteration bounds, AGENTS.md drift, off-track/stuck
+workers, retry handling, completion, verification, then continued work. A worker that crosses one
+of those drift, stuck, or off-track thresholds is steered once by default. It receives a grace
+period before a repeated high score causes Foreman to stop it. State tracks steering and
+verification so policy does not oscillate.
 
 Default policy thresholds are:
 
@@ -166,6 +172,7 @@ Default policy thresholds are:
 | --- | ---: |
 | needs human | 0.80 |
 | off track | 0.80 |
+| AGENTS.md drift | 0.80 |
 | worker stuck | 0.80 |
 | needs verification | 0.65 |
 | implementation before verification | 0.75 |
@@ -190,7 +197,7 @@ The integration follows TypeSafe's current official Python SDK:
   transient 5xx failures within its assessment timeout.
 
 [TypeSafe's primitives documentation](https://docs.typesafe.ai/primitives) says questions in a
-single call are evaluated independently and in parallel. Noul is the right primitive for these nine
+single call are evaluated independently and in parallel. Noul is the right primitive for these ten
 yes/no probabilities; Choice and Score remain available for future experiments. The public docs
 describe HTTP 429 handling but do not publish a single numeric rate limit, so Foreman does not
 invent one. Its minimum assessment interval defaults to five seconds and is configurable.

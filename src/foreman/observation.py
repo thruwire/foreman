@@ -29,6 +29,8 @@ class FactoryObservation(BaseModel):
     git_status: str
     git_diff: str
     changed_files: list[str]
+    agents_md_path: str | None = None
+    agents_md_instructions: str = ""
     test_results: list[dict[str, Any]]
     verification_results: list[dict[str, Any]]
     recent_events: list[dict[str, Any]]
@@ -39,7 +41,12 @@ class FactoryObservation(BaseModel):
     elapsed_factory_seconds: float = Field(ge=0.0)
 
     @field_validator(
-        "original_job", "latest_worker_output", "git_status", "git_diff", mode="before"
+        "original_job",
+        "latest_worker_output",
+        "git_status",
+        "git_diff",
+        "agents_md_instructions",
+        mode="before",
     )
     @classmethod
     def strings_only(cls, value: object) -> str:
@@ -52,6 +59,26 @@ def _tail(value: str, limit: int) -> str:
     if len(value) <= limit:
         return value
     return f"[... {len(value) - limit} earlier characters omitted ...]\n{value[-limit:]}"
+
+
+def _repository_agents_md(repository: Path, limit: int) -> tuple[str | None, str]:
+    """Read the repository-root Codex instructions without retaining them in factory state."""
+
+    for filename in ("AGENTS.override.md", "AGENTS.md"):
+        path = repository / filename
+        if path.is_symlink():
+            continue
+        try:
+            with path.open(encoding="utf-8", errors="replace") as handle:
+                instructions = handle.read(limit + 1)
+        except OSError:
+            continue
+        if not instructions.strip():
+            continue
+        if len(instructions) > limit:
+            instructions = f"{instructions[:limit]}\n[... instructions truncated ...]"
+        return filename, instructions
+    return None, ""
 
 
 def _bounded_worker(worker: WorkerRecord, output_limit: int) -> dict[str, Any]:
@@ -101,6 +128,9 @@ class ObservationBuilder:
 
     async def build(self, state: FactoryState) -> FactoryObservation:
         repository = Path(state.repository)
+        agents_md_path, agents_md_instructions = _repository_agents_md(
+            repository, self.config.field_limit
+        )
         # Git evidence is independent, so gather it without serial subprocess latency.
         status_task = asyncio.create_task(
             _git(repository, "status", "--short", limit=self.config.field_limit)
@@ -143,6 +173,8 @@ class ObservationBuilder:
             changed_files=[line for line in names.splitlines() if line][
                 : self.config.worker_history_limit * 10
             ],
+            agents_md_path=agents_md_path,
+            agents_md_instructions=agents_md_instructions,
             test_results=[],
             verification_results=[
                 result.model_dump(mode="json") for result in state.verification_results

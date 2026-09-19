@@ -42,14 +42,26 @@ class FactoryPolicy:
 
         if active_id:
             off_track = assessment.work_off_track >= self.config.off_track_threshold
+            agents_drift = assessment.agents_md_drift >= self.config.agents_drift_threshold
             stuck = assessment.worker_stuck >= self.config.stuck_threshold
-            if off_track or stuck:
+            if off_track or agents_drift or stuck:
                 worker = next(item for item in state.workers if item.worker_id == active_id)
-                reason = (
-                    "active worker appears off track"
-                    if off_track and assessment.work_off_track >= assessment.worker_stuck
-                    else "active worker appears stuck"
+                warning_scores = (
+                    (
+                        assessment.agents_md_drift if agents_drift else -1.0,
+                        "active worker appears to be drifting from repository "
+                        "AGENTS.md instructions",
+                    ),
+                    (
+                        assessment.work_off_track if off_track else -1.0,
+                        "active worker appears off track",
+                    ),
+                    (
+                        assessment.worker_stuck if stuck else -1.0,
+                        "active worker appears stuck",
+                    ),
                 )
+                reason = max(warning_scores, key=lambda warning: warning[0])[1]
                 if worker.last_steered_at is not None:
                     since_steer = (datetime.now(UTC) - worker.last_steered_at).total_seconds()
                     if since_steer < self.config.steering_grace_seconds:

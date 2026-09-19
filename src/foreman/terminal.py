@@ -54,6 +54,7 @@ class TerminalRenderer:
                 ("Meaningful progress", "meaningful_progress"),
                 ("Worker stuck", "worker_stuck"),
                 ("Work off track", "work_off_track"),
+                ("AGENTS.md drift", "agents_md_drift"),
                 ("Needs human", "needs_human"),
             ]:
                 self.console.print(f"  {label:<23} {float(assessment[key]):>3.0%}")

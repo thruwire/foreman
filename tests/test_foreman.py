@@ -28,6 +28,8 @@ def observation() -> FactoryObservation:
         git_status="",
         git_diff="",
         changed_files=[],
+        agents_md_path="AGENTS.md",
+        agents_md_instructions="Run the repository verification command.",
         test_results=[],
         verification_results=[],
         recent_events=[],
@@ -90,6 +92,10 @@ async def test_jev_model_builds_parallel_noul_call() -> None:
     assert result.ready_to_finish == 0.6
     assert set(client.calls[0]["questions"]) == set(ASSESSMENT_QUESTIONS)
     assert client.calls[0]["model"] == "jev-latest"
+    assert (
+        client.calls[0]["state"]["agents_md_instructions"]
+        == "Run the repository verification command."
+    )
 
 
 @pytest.mark.asyncio
@@ -104,4 +110,3 @@ async def test_jev_timeout_is_translated() -> None:
     model = JevForemanModel(client=Client(delay=1), timeout_seconds=0.01)
     with pytest.raises(ForemanModelError, match="timed out"):
         await model.assess(observation())
-

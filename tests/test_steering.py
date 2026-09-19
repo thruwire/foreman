@@ -17,3 +17,13 @@ def test_off_track_assessment_refocuses_on_original_job(assessment) -> None:
     message = build_steering_message(value)
     assert "work off track: 94%" in message
     assert "Re-read the original job" in message
+
+
+def test_agents_md_drift_assessment_refocuses_on_repository_instructions(assessment) -> None:
+    value = assessment.model_copy(update={"agents_md_drift": 0.96})
+
+    message = build_steering_message(value)
+
+    assert "AGENTS.md drift: 96%" in message
+    assert "drifting from the repository's AGENTS.md instructions" in message
+    assert "Re-read the applicable repository instructions" in message

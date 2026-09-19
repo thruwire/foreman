@@ -29,7 +29,7 @@ offline tests; real runs default to Jev and Codex.
 2. The watcher drains adjacent events and applies the minimum assessment interval.
 3. Completion, failure, and stop events force an immediate cycle.
 4. Git status/diff and current state become one bounded `FactoryObservation`.
-5. The model returns nine probabilities.
+5. The model returns ten probabilities, including repository `AGENTS.md` drift.
 6. Pydantic validates and normalizes the assessment.
 7. Policy returns one legal `Intervention`.
 8. Runtime may steer the active turn, interrupt it, or apply another lifecycle action.

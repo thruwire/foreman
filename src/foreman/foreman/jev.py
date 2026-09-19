@@ -31,6 +31,11 @@ ASSESSMENT_QUESTIONS: dict[str, str] = {
     "work_off_track": (
         "Is the current work drifting from the original job or making unrelated changes?"
     ),
+    "agents_md_drift": (
+        "When agents_md_instructions is present, is the active or most recent worker's behavior "
+        "or repository work materially inconsistent with those repository instructions? "
+        "Answer no when no AGENTS.md instructions are present or the evidence is insufficient."
+    ),
     "ready_to_finish": (
         "Given all evidence, is the factory job ready to be declared complete?"
     ),
@@ -41,7 +46,7 @@ ASSESSMENT_QUESTIONS: dict[str, str] = {
 
 
 def normalize_assessment(values: Mapping[str, Any]) -> FactoryAssessment:
-    """Validate all nine Noul probabilities and clamp minor numeric overshoot."""
+    """Validate all ten Noul probabilities and clamp minor numeric overshoot."""
 
     normalized: dict[str, float] = {}
     missing = set(ASSESSMENT_QUESTIONS) - set(values)

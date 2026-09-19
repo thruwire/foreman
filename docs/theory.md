@@ -63,8 +63,8 @@ Foreman instead consumes start, output, failure, repository, timeout, and comple
 the subprocess is live. Events are coalesced so one noisy stdout stream does not produce one model
 call per line. Important lifecycle events bypass the normal debounce delay.
 
-That makes early intervention possible. A sufficiently strong stuck or off-track signal first sends
-bounded guidance into the active worker turn. If the signal remains high after a grace period,
+That makes early intervention possible. A sufficiently strong AGENTS.md drift, stuck, or off-track
+signal first sends guidance into the active turn. If the warning remains high after a grace period,
 Foreman can still stop the worker before its natural timeout. Quiet work continues to receive
 periodic assessment.
 

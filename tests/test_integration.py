@@ -21,6 +21,7 @@ def score(**updates: float) -> FactoryAssessment:
         "meaningful_progress": 0.9,
         "worker_stuck": 0.0,
         "work_off_track": 0.0,
+        "agents_md_drift": 0.0,
         "ready_to_finish": 0.0,
         "needs_human": 0.0,
     }
@@ -95,6 +96,37 @@ async def test_full_simulated_factory_assesses_live_and_verifies(tmp_path) -> No
     assert EventType.VERIFICATION_STARTED in types
     assert EventType.VERIFICATION_COMPLETED in types
     assert EventType.FACTORY_FINISHED in types
+
+
+@pytest.mark.asyncio
+async def test_agents_md_drift_is_observed_and_steered(tmp_path) -> None:
+    marker = "Do not modify generated files."
+    (tmp_path / "AGENTS.md").write_text(marker, encoding="utf-8")
+    ready = score(
+        implementation_complete=0.99,
+        tests_sufficient=0.99,
+        requirements_satisfied=0.99,
+        needs_verification=0.0,
+        ready_to_finish=0.99,
+    )
+    model = FakeForemanModel([score(agents_md_drift=0.95), ready])
+    runtime = FactoryRuntime(
+        repository=tmp_path,
+        job="Make a compliant change",
+        model=model,
+        config=config(),
+        worker_factory=lambda _: FakeWorker(output_lines=["working"], delay_seconds=0.02),
+    )
+
+    state = await runtime.run()
+
+    assert state.status is FactoryStatus.FINISHED
+    assert model.calls[0].agents_md_path == "AGENTS.md"
+    assert model.calls[0].agents_md_instructions == marker
+    events = RunStore(tmp_path).load_events(state.run_id)
+    steered = [event for event in events if event.event_type is EventType.WORKER_STEERED]
+    assert len(steered) == 1
+    assert "AGENTS.md" in steered[0].payload["message"]
 
 
 @pytest.mark.asyncio

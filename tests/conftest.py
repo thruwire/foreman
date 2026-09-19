@@ -17,6 +17,7 @@ def assessment() -> FactoryAssessment:
         meaningful_progress=0.9,
         worker_stuck=0.1,
         work_off_track=0.1,
+        agents_md_drift=0.0,
         ready_to_finish=0.7,
         needs_human=0.0,
     )
@@ -30,4 +31,3 @@ def state(tmp_path) -> FactoryState:
         repository=str(tmp_path),
         started_at=datetime.now(UTC),
     )
-

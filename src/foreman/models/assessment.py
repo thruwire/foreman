@@ -18,6 +18,7 @@ class FactoryAssessment(BaseModel):
     meaningful_progress: float = Field(ge=0.0, le=1.0)
     worker_stuck: float = Field(ge=0.0, le=1.0)
     work_off_track: float = Field(ge=0.0, le=1.0)
+    agents_md_drift: float = Field(default=0.0, ge=0.0, le=1.0)
     ready_to_finish: float = Field(ge=0.0, le=1.0)
     needs_human: float = Field(ge=0.0, le=1.0)
     assessed_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -30,6 +31,7 @@ class FactoryAssessment(BaseModel):
         "meaningful_progress",
         "worker_stuck",
         "work_off_track",
+        "agents_md_drift",
         "ready_to_finish",
         "needs_human",
     )
@@ -38,4 +40,3 @@ class FactoryAssessment(BaseModel):
         if not isfinite(value):
             raise ValueError("assessment scores must be finite")
         return value
-

@@ -55,6 +55,17 @@ def test_stop_off_track_worker(state, assessment) -> None:
     assert result.worker_id == "worker-1"
 
 
+def test_steer_worker_drifting_from_agents_md(state, assessment) -> None:
+    active(state)
+    value = with_scores(assessment, agents_md_drift=0.95)
+
+    result = FactoryPolicy(FactoryConfig()).decide(state, value)
+
+    assert result.action is InterventionType.STEER_WORKER
+    assert result.worker_id == "worker-1"
+    assert "AGENTS.md" in result.reason
+
+
 def test_stop_stuck_then_retry(state, assessment) -> None:
     active(state)
     policy = FactoryPolicy(FactoryConfig(steering_enabled=False))
