@@ -49,6 +49,7 @@ conventional coding-agent harness.
 - [Runtime and event flow](docs/runtime.md)
 - [Live steering](docs/steering.md)
 - [Worker backends](docs/workers.md)
+- [Foreman as an MCP decision tool](docs/mcp.md)
 
 ## Contributing
 
