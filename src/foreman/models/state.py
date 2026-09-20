@@ -51,6 +51,7 @@ class FactoryState(BaseModel):
     verification_results: list[VerificationResult] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     retry_count: int = Field(default=0, ge=0)
+    consecutive_assessment_failures: int = Field(default=0, ge=0)
     verification_started: bool = False
     verification_completed: bool = False
 
@@ -69,4 +70,3 @@ class FactoryState(BaseModel):
 
     def touch(self) -> None:
         self.updated_at = datetime.now(UTC)
-
