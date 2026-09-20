@@ -49,6 +49,12 @@ conventional coding-agent harness.
 - [Runtime and event flow](docs/runtime.md)
 - [Live steering](docs/steering.md)
 
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and pull-request
+guidance. Please also read the [Code of Conduct](CODE_OF_CONDUCT.md) and report vulnerabilities
+according to the [Security Policy](SECURITY.md).
+
 ## What is Foreman?
 
 Foreman is a native Python `asyncio` runtime with two concurrent loops:
