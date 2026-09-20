@@ -46,3 +46,12 @@ def test_invalid_worker_backend_is_rejected() -> None:
 
     with pytest.raises(ValidationError):
         FactoryConfig(worker_backend="Muse")
+
+
+def test_assessment_failure_budget_defaults() -> None:
+    assert FactoryConfig().max_consecutive_assessment_failures == 3
+
+
+def test_assessment_failure_budget_environment_override(monkeypatch) -> None:
+    monkeypatch.setenv("FOREMAN_MAX_CONSECUTIVE_ASSESSMENT_FAILURES", "5")
+    assert FactoryConfig.from_environment().max_consecutive_assessment_failures == 5

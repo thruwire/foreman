@@ -22,6 +22,8 @@ class OpenCodeWorker:
     stop/retry for this backend.
     """
 
+    supports_steering = False
+
     def __init__(
         self,
         *,

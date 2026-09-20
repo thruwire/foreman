@@ -72,8 +72,7 @@ class FactoryPolicy:
                         )
                 if (
                     self.config.steering_enabled
-                    and self.config.worker_backend == "codex"
-                    and self.config.codex_backend == "app-server"
+                    and worker.supports_steering
                     and worker.steer_count < self.config.max_steers_per_worker
                 ):
                     return result(InterventionType.STEER_WORKER, reason, active_id)

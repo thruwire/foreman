@@ -37,6 +37,7 @@ class WorkerRecord(BaseModel):
     termination_reason: str | None = None
     codex_thread_id: str | None = None
     codex_turn_id: str | None = None
+    supports_steering: bool = False
     steer_count: int = Field(default=0, ge=0)
     last_steered_at: datetime | None = None
     steering_history: list[str] = Field(default_factory=list)

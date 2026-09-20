@@ -30,6 +30,8 @@ class Worker(Protocol):
     backends — another CLI, a remote agent, a container — can be added
     without touching the supervision loop:
 
+    - ``supports_steering`` declares whether the worker has a live input
+      channel. The policy uses this capability instead of backend names.
     - ``run`` starts the agent with ``record.mission`` as its prompt,
       streams bounded stdout/stderr through ``emit`` while it works, and
       records the terminal status on ``record`` before returning.
@@ -40,6 +42,8 @@ class Worker(Protocol):
     - ``terminate`` asks the agent to stop promptly (interrupt first,
       then kill after a bounded grace period).
     """
+
+    supports_steering: bool
 
     async def run(
         self,

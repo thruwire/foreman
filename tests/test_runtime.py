@@ -5,8 +5,9 @@ import asyncio
 import pytest
 
 from foreman.config import FactoryConfig
-from foreman.foreman import FakeForemanModel
-from foreman.models import EventType, FactoryAssessment, FactoryStatus
+from foreman.foreman import FakeForemanModel, ForemanModelError
+from foreman.foreman.simulation import DEMO_ASSESSMENTS
+from foreman.models import EventType, FactoryAssessment, FactoryStatus, InterventionType
 from foreman.runtime import FactoryRuntime
 from foreman.workers import FakeWorker
 
@@ -132,6 +133,71 @@ def test_default_worker_factory_selects_backend(tmp_path) -> None:
         )
         return runtime.worker_factory(WorkerType.CODING)
 
-    assert isinstance(factory_for(), CodexAppServerWorker)
-    assert isinstance(factory_for(codex_backend="exec"), CodexWorker)
-    assert isinstance(factory_for(worker_backend="opencode"), OpenCodeWorker)
+    app_server = factory_for()
+    codex_exec = factory_for(codex_backend="exec")
+    opencode = factory_for(worker_backend="opencode")
+
+    assert isinstance(app_server, CodexAppServerWorker)
+    assert app_server.supports_steering is True
+    assert isinstance(codex_exec, CodexWorker)
+    assert codex_exec.supports_steering is False
+    assert isinstance(opencode, OpenCodeWorker)
+    assert opencode.supports_steering is False
+
+
+class FlakyModel:
+    """Fails the first `failures` assessments, then returns a benign one."""
+
+    def __init__(self, failures: int) -> None:
+        self.remaining = failures
+
+    async def assess(self, observation):
+        if self.remaining > 0:
+            self.remaining -= 1
+            raise ForemanModelError("transient outage")
+        return DEMO_ASSESSMENTS[0].model_copy(deep=True)
+
+    async def close(self) -> None:
+        return None
+
+
+def tolerated_runtime(tmp_path, model, **kwargs):
+    return FactoryRuntime(
+        repository=tmp_path,
+        job="job",
+        model=model,
+        config=FactoryConfig(
+            assessment_min_interval_seconds=0,
+            periodic_assessment_seconds=0.1,
+            worker_timeout_seconds=1,
+            overall_timeout_seconds=1.5,
+            **kwargs,
+        ),
+        worker_factory=lambda _: FakeWorker(wait_forever=True, output_lines=[]),
+        event_sink=lambda event: None,
+    )
+
+
+@pytest.mark.asyncio
+async def test_transient_assessment_failures_are_tolerated(tmp_path) -> None:
+    runtime = tolerated_runtime(tmp_path, FlakyModel(failures=2))
+    state = await runtime.run()
+
+    # The run ends on the overall timeout, not on the two transient blips.
+    assert state.status is FactoryStatus.FAILED
+    assert InterventionType.ESCALATE not in [i.action for i in state.intervention_history]
+    assert any("tolerated" in i.reason for i in state.intervention_history)
+    # Later successes reset the consecutive-failure counter.
+    assert state.consecutive_assessment_failures == 0
+
+
+@pytest.mark.asyncio
+async def test_assessment_failure_budget_exhaustion_escalates(tmp_path) -> None:
+    runtime = tolerated_runtime(tmp_path, FlakyModel(failures=100))
+    state = await runtime.run()
+
+    assert state.status is FactoryStatus.ESCALATED
+    assert state.consecutive_assessment_failures == 3
+    escalations = [i for i in state.intervention_history if i.action is InterventionType.ESCALATE]
+    assert len(escalations) == 1
+    assert "semantic assessment unavailable" in escalations[0].reason

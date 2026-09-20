@@ -204,13 +204,14 @@ class FactoryRuntime:
             raise RuntimeError("maximum workers per job reached")
         number = len(self.state.workers) + 1
         worker_id = f"worker-{number}"
+        implementation = self.worker_factory(worker_type)
         record = WorkerRecord(
             worker_id=worker_id,
             worker_type=worker_type,
             mission=mission_for(worker_type, self.state.job),
             attempt=self.state.retry_count + 1,
+            supports_steering=getattr(implementation, "supports_steering", False),
         )
-        implementation = self.worker_factory(worker_type)
         self.state.workers.append(record)
         self.state.active_workers.append(worker_id)
         if worker_type is WorkerType.VERIFIER:
@@ -249,13 +250,26 @@ class FactoryRuntime:
             assessment = await self.model.assess(observation)
         except ForemanModelError as error:
             self.state.errors.append(str(error))
-            intervention = Intervention(
-                action=InterventionType.ESCALATE,
-                reason=f"semantic assessment unavailable: {error}",
-                assessment_iteration=self.state.iteration,
-            )
+            self.state.consecutive_assessment_failures += 1
+            failures = self.state.consecutive_assessment_failures
+            budget = self.config.max_consecutive_assessment_failures
+            if failures < budget:
+                # Tolerate transient supervisor outages: keep the workers
+                # running and retry the assessment on the next cycle.
+                intervention = Intervention(
+                    action=InterventionType.CONTINUE,
+                    reason=f"semantic assessment failed ({failures}/{budget} tolerated): {error}",
+                    assessment_iteration=self.state.iteration,
+                )
+            else:
+                intervention = Intervention(
+                    action=InterventionType.ESCALATE,
+                    reason=f"semantic assessment unavailable: {error}",
+                    assessment_iteration=self.state.iteration,
+                )
             self.state.latest_intervention = intervention
             self.state.intervention_history.append(intervention)
+            self.state.touch()
             self.store.save_state(self.state)
             await self.emit(
                 EventType.FOREMAN_INTERVENED,
@@ -264,6 +278,7 @@ class FactoryRuntime:
             )
             return intervention
 
+        self.state.consecutive_assessment_failures = 0
         self.state.latest_assessment = assessment
         self.state.assessment_history.append(assessment)
         await self.emit(

@@ -11,6 +11,8 @@ from foreman.workers.base import EventCallback
 class FakeWorker:
     """A deterministic simulated worker with real cancellation/termination semantics."""
 
+    supports_steering = True
+
     def __init__(
         self,
         *,

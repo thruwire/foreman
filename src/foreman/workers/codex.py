@@ -41,6 +41,8 @@ Fix any problems you can safely resolve, then report your findings clearly.
 class CodexWorker:
     """A real worker using the installed Codex CLI as a streaming subprocess."""
 
+    supports_steering = False
+
     def __init__(
         self,
         *,
