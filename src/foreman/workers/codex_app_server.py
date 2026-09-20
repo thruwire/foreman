@@ -21,6 +21,8 @@ class CodexAppServerError(RuntimeError):
 class CodexAppServerWorker:
     """A steerable Codex worker backed by the App Server JSON-RPC protocol."""
 
+    supports_steering = True
+
     def __init__(
         self,
         *,

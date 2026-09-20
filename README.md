@@ -48,6 +48,7 @@ conventional coding-agent harness.
 - [What Foreman is proving](docs/what-foreman-proves.md)
 - [Runtime and event flow](docs/runtime.md)
 - [Live steering](docs/steering.md)
+- [Worker backends](docs/workers.md)
 
 ## Contributing
 
@@ -111,6 +112,20 @@ live steering.
 
 The worker implementation is replaceable; the runtime depends on a small worker protocol rather
 than Codex-specific types.
+
+### Worker backends
+
+The semantic-supervision loop is agent-agnostic. Select the worker backend with
+`FOREMAN_WORKER_BACKEND` (`codex`, the default, or `opencode`):
+
+```bash
+FOREMAN_WORKER_BACKEND=opencode foreman run --repo ./my-project --job "Add request retries"
+```
+
+The OpenCode backend runs `opencode run` non-interactively and streams its output like the Codex
+exec backend. Live steering into an active turn is only available with the Codex App Server
+backend; other backends degrade to stop/retry. See [Worker backends](docs/workers.md) for the
+`Worker` protocol and how to add your own.
 
 ## What Foreman watches
 
@@ -213,10 +228,13 @@ invent one. Its minimum assessment interval defaults to five seconds and is conf
 ## Requirements
 
 - Python 3.11 or newer.
-- The [Codex CLI](https://learn.chatgpt.com/docs/developer-commands?surface=cli) on `PATH`.
-- A Codex CLI version that provides `codex app-server` for live steering.
-- Codex authentication (`codex login`, then verify with `codex login status`).
 - A TypeSafe API key for real runs. The deterministic demo and tests need neither service.
+- For the default Codex backend: the
+  [Codex CLI](https://learn.chatgpt.com/docs/developer-commands?surface=cli) on `PATH`, a version
+  that provides `codex app-server` for live steering, and Codex authentication (`codex login`,
+  then verify with `codex login status`).
+- For the OpenCode backend: the [OpenCode CLI](https://opencode.ai) on `PATH` with an available
+  provider and model.
 
 ## Installation
 
@@ -295,6 +313,7 @@ The most useful environment overrides are:
 | `FOREMAN_MAX_ITERATIONS` | `20` | Semantic decision ceiling |
 | `FOREMAN_MAX_CONSECUTIVE_ASSESSMENT_FAILURES` | `3` | Tolerated supervisor failures before escalation |
 | `FOREMAN_CODEX_BACKEND` | `app-server` | `app-server` for steering or `exec` fallback |
+| `FOREMAN_WORKER_BACKEND` | `codex` | `codex` or `opencode` worker backend |
 | `FOREMAN_STEERING_ENABLED` | `true` | Allow Jev-informed active-turn guidance |
 | `FOREMAN_MAX_STEERS_PER_WORKER` | `1` | Steering attempts before stop/retry |
 | `FOREMAN_STEERING_GRACE_SECONDS` | `30` | Time to recover before another intervention |
@@ -320,9 +339,11 @@ limits. Workers receive only the supplied repository as their working root. Stop
 interrupt the active App Server turn, then terminate the process after a bounded grace period.
 Ctrl-C cancels the run, terminates active workers, and persists a final cancelled state.
 
-Codex still runs with the permissions of the local environment. `workspace-write` is requested, but
-Foreman is not a security sandbox and does not make untrusted repositories safe. Review Codex's
-configuration and the repository before running it.
+Workers still run with the permissions of the local environment. Codex requests its
+`workspace-write` sandbox. OpenCode runs with `--auto`, which approves permission requests that are
+not explicitly denied; Foreman does not add a sandbox around it. Configure restrictive OpenCode
+permission rules before use. Foreman does not make untrusted repositories or jobs safe, so review
+the worker configuration and repository before running either backend.
 
 ## Limitations
 

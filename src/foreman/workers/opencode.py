@@ -6,71 +6,45 @@ import signal
 from datetime import UTC, datetime
 from pathlib import Path
 
-from foreman.models import EventType, WorkerRecord, WorkerStatus, WorkerType
-from foreman.workers.base import EventCallback, codex_environment
+from foreman.models import EventType, WorkerRecord, WorkerStatus
+from foreman.workers.base import EventCallback, worker_environment
 
 
-def coding_mission(job: str) -> str:
-    return f"""Original job:
-{job}
+class OpenCodeWorker:
+    """A worker using the installed OpenCode CLI in non-interactive mode.
 
-You are a coding worker operating on this repository.
-Inspect the existing repository and previous work before changing anything.
-Continue working toward fully satisfying the original job.
-Perform whatever investigation, implementation, debugging, or testing remains necessary.
-Do not assume previous workers completed the job correctly.
-Run appropriate tests before finishing.
-Report what you did, what remains unresolved, and any problems you encountered.
-"""
-
-
-def verification_mission(job: str) -> str:
-    return f"""Original job:
-{job}
-
-You are an independent verification worker.
-Inspect the current repository against the original job.
-Verify whether the implementation actually satisfies the request and run appropriate tests.
-Look for missing requirements, incorrect behavior, regressions, incomplete implementation,
-insufficient tests, and failures hidden by previous workers.
-Do not assume previous workers were correct.
-Fix any problems you can safely resolve, then report your findings clearly.
-"""
-
-
-class CodexWorker:
-    """A real worker using the installed Codex CLI as a streaming subprocess."""
+    Runs ``opencode run`` as a streaming subprocess. The prompt is passed
+    positionally (``-p`` is not the prompt flag in current OpenCode
+    releases) and ``--auto`` keeps the headless run from stalling on
+    permission prompts; fine-grained permissions remain governed by the
+    user's opencode.json. There is no live-turn input channel, so
+    ``steer`` always returns ``False`` and the policy falls back to
+    stop/retry for this backend.
+    """
 
     supports_steering = False
 
     def __init__(
         self,
         *,
-        executable: str = "codex",
-        sandbox: str = "workspace-write",
+        executable: str = "opencode",
+        model: str | None = None,
         output_limit: int = 50_000,
         graceful_termination_seconds: float = 5.0,
     ) -> None:
         self.executable = executable
-        self.sandbox = sandbox
+        self.model = model
         self.output_limit = output_limit
         self.graceful_termination_seconds = graceful_termination_seconds
         self.process: asyncio.subprocess.Process | None = None
         self._termination_reason: str | None = None
 
-    def command(self, repository: Path, mission: str) -> list[str]:
-        return [
-            self.executable,
-            "exec",
-            "--cd",
-            str(repository.resolve()),
-            "--sandbox",
-            self.sandbox,
-            "--color",
-            "never",
-            "--json",
-            mission,
-        ]
+    def command(self, mission: str) -> list[str]:
+        command = [self.executable, "run", "--auto"]
+        if self.model is not None:
+            command.extend(["--model", self.model])
+        command.append(mission)
+        return command
 
     async def _stream(
         self,
@@ -105,9 +79,9 @@ class CodexWorker:
         record.started_at = datetime.now(UTC)
         try:
             self.process = await asyncio.create_subprocess_exec(
-                *self.command(repository, record.mission),
+                *self.command(record.mission),
                 cwd=repository,
-                env=codex_environment(),
+                env=worker_environment(),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=True,
@@ -115,7 +89,7 @@ class CodexWorker:
         except Exception as error:
             record.status = WorkerStatus.FAILED
             record.finished_at = datetime.now(UTC)
-            record.stderr = f"failed to launch Codex: {error}"
+            record.stderr = f"failed to launch OpenCode: {error}"
             record.termination_reason = "launch_failed"
             return record
 
@@ -167,12 +141,6 @@ class CodexWorker:
             await process.wait()
 
     async def steer(self, message: str) -> bool:
-        # Non-interactive `codex exec` has no active-turn input channel.
+        # Non-interactive `opencode run` has no active-turn input channel.
         del message
         return False
-
-
-def mission_for(worker_type: WorkerType, job: str) -> str:
-    if worker_type is WorkerType.VERIFIER:
-        return verification_mission(job)
-    return coding_mission(job)

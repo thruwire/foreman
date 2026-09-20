@@ -96,6 +96,7 @@ def _bounded_worker(worker: WorkerRecord, output_limit: int) -> dict[str, Any]:
         "termination_reason": worker.termination_reason,
         "codex_thread_id": worker.codex_thread_id,
         "codex_turn_id": worker.codex_turn_id,
+        "supports_steering": worker.supports_steering,
         "steer_count": worker.steer_count,
         "last_steered_at": (
             worker.last_steered_at.isoformat() if worker.last_steered_at else None

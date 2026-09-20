@@ -26,7 +26,7 @@ from foreman.observation import ObservationBuilder
 from foreman.persistence import RunStore
 from foreman.policy import FactoryPolicy
 from foreman.steering import build_steering_message
-from foreman.workers import CodexAppServerWorker, CodexWorker, Worker
+from foreman.workers import CodexAppServerWorker, CodexWorker, OpenCodeWorker, Worker
 from foreman.workers.codex import mission_for
 
 EventSink = Callable[[FactoryEvent], object]
@@ -67,7 +67,7 @@ class FactoryRuntime:
         self.observer = ObservationBuilder(self.store, self.config)
         self.event_sink = event_sink
         self.queue: asyncio.Queue[FactoryEvent] = asyncio.Queue()
-        self.worker_factory = worker_factory or self._codex_factory
+        self.worker_factory = worker_factory or self._default_worker_factory
         self.state = FactoryState(
             run_id=run_id or uuid4().hex[:12],
             job=job.strip(),
@@ -78,8 +78,13 @@ class FactoryRuntime:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._closed = False
 
-    def _codex_factory(self, worker_type: WorkerType) -> Worker:
+    def _default_worker_factory(self, worker_type: WorkerType) -> Worker:
         del worker_type
+        if self.config.worker_backend == "opencode":
+            return OpenCodeWorker(
+                output_limit=self.config.output_limit,
+                graceful_termination_seconds=self.config.graceful_termination_seconds,
+            )
         if self.config.codex_backend == "app-server":
             return CodexAppServerWorker(
                 output_limit=self.config.output_limit,
@@ -199,13 +204,14 @@ class FactoryRuntime:
             raise RuntimeError("maximum workers per job reached")
         number = len(self.state.workers) + 1
         worker_id = f"worker-{number}"
+        implementation = self.worker_factory(worker_type)
         record = WorkerRecord(
             worker_id=worker_id,
             worker_type=worker_type,
             mission=mission_for(worker_type, self.state.job),
             attempt=self.state.retry_count + 1,
+            supports_steering=getattr(implementation, "supports_steering", False),
         )
-        implementation = self.worker_factory(worker_type)
         self.state.workers.append(record)
         self.state.active_workers.append(worker_id)
         if worker_type is WorkerType.VERIFIER:

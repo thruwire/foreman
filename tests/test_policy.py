@@ -18,9 +18,14 @@ def with_scores(assessment: FactoryAssessment, **scores: float) -> FactoryAssess
     return assessment.model_copy(update=scores)
 
 
-def active(state) -> None:
+def active(state, *, supports_steering: bool = True) -> None:
     state.workers.append(
-        WorkerRecord(worker_id="worker-1", worker_type=WorkerType.CODING, mission="work")
+        WorkerRecord(
+            worker_id="worker-1",
+            worker_type=WorkerType.CODING,
+            mission="work",
+            supports_steering=supports_steering,
+        )
     )
     state.active_workers.append("worker-1")
     state.iteration = 1
@@ -48,9 +53,9 @@ def test_start_verifier(state, assessment) -> None:
 
 
 def test_stop_off_track_worker(state, assessment) -> None:
-    active(state)
+    active(state, supports_steering=False)
     value = with_scores(assessment, work_off_track=0.95)
-    result = FactoryPolicy(FactoryConfig(codex_backend="exec")).decide(state, value)
+    result = FactoryPolicy(FactoryConfig()).decide(state, value)
     assert result.action is InterventionType.STOP_WORKER
     assert result.worker_id == "worker-1"
 
@@ -144,9 +149,7 @@ def test_finish_after_successful_verification_only_worker(state, assessment) -> 
 
 def test_escalate(state, assessment) -> None:
     state.iteration = 1
-    result = FactoryPolicy(FactoryConfig()).decide(
-        state, with_scores(assessment, needs_human=0.95)
-    )
+    result = FactoryPolicy(FactoryConfig()).decide(state, with_scores(assessment, needs_human=0.95))
     assert result.action is InterventionType.ESCALATE
 
 
@@ -158,17 +161,19 @@ def test_maximum_retries(state, assessment) -> None:
         reason="stuck",
         assessment_iteration=1,
     )
-    assert FactoryPolicy(FactoryConfig(max_retries=1)).decide(
-        state, assessment
-    ).action is InterventionType.ESCALATE
+    assert (
+        FactoryPolicy(FactoryConfig(max_retries=1)).decide(state, assessment).action
+        is InterventionType.ESCALATE
+    )
 
 
 def test_maximum_workers(state, assessment) -> None:
     state.iteration = 1
     state.workers.append(WorkerRecord(worker_id="w", worker_type=WorkerType.CODING, mission="x"))
-    assert FactoryPolicy(FactoryConfig(max_workers=1)).decide(
-        state, assessment
-    ).action is InterventionType.ESCALATE
+    assert (
+        FactoryPolicy(FactoryConfig(max_workers=1)).decide(state, assessment).action
+        is InterventionType.ESCALATE
+    )
 
 
 def test_verification_already_performed_is_not_repeated(state, assessment) -> None:
@@ -184,6 +189,21 @@ def test_verification_already_performed_is_not_repeated(state, assessment) -> No
 
 def test_maximum_iterations(state, assessment) -> None:
     state.iteration = state.max_iterations
-    assert FactoryPolicy(FactoryConfig()).decide(
-        state, assessment
-    ).action is InterventionType.ESCALATE
+    assert (
+        FactoryPolicy(FactoryConfig()).decide(state, assessment).action is InterventionType.ESCALATE
+    )
+
+
+def test_stop_instead_of_steer_for_non_steerable_worker(state, assessment) -> None:
+    active(state, supports_steering=False)
+    value = with_scores(assessment, agents_md_drift=0.95)
+    result = FactoryPolicy(FactoryConfig()).decide(state, value)
+    assert result.action is InterventionType.STOP_WORKER
+    assert result.worker_id == "worker-1"
+
+
+def test_worker_capability_takes_precedence_over_backend_name(state, assessment) -> None:
+    active(state)
+    value = with_scores(assessment, worker_stuck=0.95)
+    result = FactoryPolicy(FactoryConfig(worker_backend="opencode")).decide(state, value)
+    assert result.action is InterventionType.STEER_WORKER

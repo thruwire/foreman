@@ -120,6 +120,31 @@ async def test_runtime_cancellation_stops_active_worker(tmp_path) -> None:
     assert not runtime.state.active_workers
 
 
+def test_default_worker_factory_selects_backend(tmp_path) -> None:
+    from foreman.models import WorkerType
+    from foreman.workers import CodexAppServerWorker, CodexWorker, OpenCodeWorker
+
+    def factory_for(**kwargs):
+        runtime = FactoryRuntime(
+            repository=tmp_path,
+            job="job",
+            model=FakeForemanModel([]),
+            config=FactoryConfig(**kwargs),
+        )
+        return runtime.worker_factory(WorkerType.CODING)
+
+    app_server = factory_for()
+    codex_exec = factory_for(codex_backend="exec")
+    opencode = factory_for(worker_backend="opencode")
+
+    assert isinstance(app_server, CodexAppServerWorker)
+    assert app_server.supports_steering is True
+    assert isinstance(codex_exec, CodexWorker)
+    assert codex_exec.supports_steering is False
+    assert isinstance(opencode, OpenCodeWorker)
+    assert opencode.supports_steering is False
+
+
 class FlakyModel:
     """Fails the first `failures` assessments, then returns a benign one."""
 
