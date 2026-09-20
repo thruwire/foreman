@@ -29,6 +29,7 @@ class FactoryConfig(BaseModel):
     max_workers: int = Field(default=3, ge=1)
     max_retries: int = Field(default=1, ge=0)
     max_iterations: int = Field(default=20, ge=1)
+    max_consecutive_assessment_failures: int = Field(default=3, ge=1)
     codex_backend: Literal["app-server", "exec"] = "app-server"
     steering_enabled: bool = True
     max_steers_per_worker: int = Field(default=1, ge=0)
@@ -64,6 +65,10 @@ class FactoryConfig(BaseModel):
             "FOREMAN_MAX_WORKERS": ("max_workers", int),
             "FOREMAN_MAX_RETRIES": ("max_retries", int),
             "FOREMAN_MAX_ITERATIONS": ("max_iterations", int),
+            "FOREMAN_MAX_CONSECUTIVE_ASSESSMENT_FAILURES": (
+                "max_consecutive_assessment_failures",
+                int,
+            ),
             "FOREMAN_CODEX_BACKEND": ("codex_backend", str),
             "FOREMAN_STEERING_ENABLED": (
                 "steering_enabled",

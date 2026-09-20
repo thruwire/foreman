@@ -170,7 +170,9 @@ The ordering is safety-first: human need, iteration bounds, AGENTS.md drift, off
 workers, retry handling, completion, verification, then continued work. A worker that crosses one
 of those drift, stuck, or off-track thresholds is steered once by default. It receives a grace
 period before a repeated high score causes Foreman to stop it. State tracks steering and
-verification so policy does not oscillate.
+verification so policy does not oscillate. Transient supervisor (Jev) failures are tolerated up
+to `FOREMAN_MAX_CONSECUTIVE_ASSESSMENT_FAILURES` consecutive misses — the workers keep running
+while the assessment is retried — and only then does the run escalate.
 
 Default policy thresholds are:
 
@@ -291,6 +293,7 @@ The most useful environment overrides are:
 | `FOREMAN_MAX_WORKERS` | `3` | Total workers, including verifier |
 | `FOREMAN_MAX_RETRIES` | `1` | Fresh attempts after a stop |
 | `FOREMAN_MAX_ITERATIONS` | `20` | Semantic decision ceiling |
+| `FOREMAN_MAX_CONSECUTIVE_ASSESSMENT_FAILURES` | `3` | Tolerated supervisor failures before escalation |
 | `FOREMAN_CODEX_BACKEND` | `app-server` | `app-server` for steering or `exec` fallback |
 | `FOREMAN_STEERING_ENABLED` | `true` | Allow Jev-informed active-turn guidance |
 | `FOREMAN_MAX_STEERS_PER_WORKER` | `1` | Steering attempts before stop/retry |
