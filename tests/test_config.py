@@ -30,3 +30,19 @@ def test_invalid_steering_boolean_is_rejected(monkeypatch) -> None:
     monkeypatch.setenv("FOREMAN_STEERING_ENABLED", "sometimes")
     with pytest.raises(ValueError, match="invalid boolean"):
         FactoryConfig.from_environment()
+
+
+def test_worker_backend_defaults_to_codex() -> None:
+    assert FactoryConfig().worker_backend == "codex"
+
+
+def test_worker_backend_environment_override(monkeypatch) -> None:
+    monkeypatch.setenv("FOREMAN_WORKER_BACKEND", "opencode")
+    assert FactoryConfig.from_environment().worker_backend == "opencode"
+
+
+def test_invalid_worker_backend_is_rejected() -> None:
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        FactoryConfig(worker_backend="Muse")

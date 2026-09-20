@@ -117,3 +117,21 @@ async def test_runtime_cancellation_stops_active_worker(tmp_path) -> None:
         await task
     assert runtime.state.status is FactoryStatus.CANCELLED
     assert not runtime.state.active_workers
+
+
+def test_default_worker_factory_selects_backend(tmp_path) -> None:
+    from foreman.models import WorkerType
+    from foreman.workers import CodexAppServerWorker, CodexWorker, OpenCodeWorker
+
+    def factory_for(**kwargs):
+        runtime = FactoryRuntime(
+            repository=tmp_path,
+            job="job",
+            model=FakeForemanModel([]),
+            config=FactoryConfig(**kwargs),
+        )
+        return runtime.worker_factory(WorkerType.CODING)
+
+    assert isinstance(factory_for(), CodexAppServerWorker)
+    assert isinstance(factory_for(codex_backend="exec"), CodexWorker)
+    assert isinstance(factory_for(worker_backend="opencode"), OpenCodeWorker)
