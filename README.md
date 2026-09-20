@@ -4,15 +4,15 @@ Foreman watches the software factory floor with [TypeSafe AI's Jev](https://docs
 placing a fast decision model above slower coding agents.
 
 Give it a ticket, specification, bug report, or any free-form software job. A
-[Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli) worker does the software
-engineering while Foreman independently assesses whether the implementation is complete,
-requirements are satisfied, tests are sufficient, verification is needed, or human input is
-required.
+[Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli) or
+[OpenCode](https://opencode.ai) worker does the software engineering while Foreman independently
+assesses whether the implementation is complete, requirements are satisfied, tests are sufficient,
+verification is needed, or human input is required.
 
 ```text
                          SOFTWARE FACTORY
-             Codex             Codex             Tests
-            worker             worker               │
+         Codex/OpenCode    Codex/OpenCode          Tests
+            worker             worker                │
                │                  │                  │
                └──────────────────┼──────────────────┘
                                   │ factory evidence
@@ -79,8 +79,8 @@ test ◄──────────── intervention ───────�
   └── continue
 ```
 
-Foreman does not replace Codex's reason/tool/observe loop and does not choose individual tools or
-files for Codex. Missions stay broad. The important property is that the worker does not have to
+Foreman does not replace a worker's reason/tool/observe loop and does not choose its individual
+tools or files. Missions stay broad. The important property is that the worker does not have to
 stop working for the factory to think: worker output and lifecycle events flow into an independent,
 debounced observation loop while the subprocess remains active.
 
@@ -106,9 +106,9 @@ thread/start → turn/start → turn/steer or turn/interrupt
 The App Server transport keeps the active Codex thread addressable, allowing Foreman to send a
 supervisory update into an in-flight turn. App Server notifications and stderr are bounded in
 memory, persisted as factory events, and made visible to Foreman before the worker exits. A verifier
-is another Codex worker with an independent, deterministic verification mission. The prior stable
-`codex exec` transport remains available through `FOREMAN_CODEX_BACKEND=exec`, but it cannot accept
-live steering.
+is another worker using the selected backend with an independent, deterministic verification
+mission. The prior stable `codex exec` transport remains available through
+`FOREMAN_CODEX_BACKEND=exec`, but it cannot accept live steering.
 
 The worker implementation is replaceable; the runtime depends on a small worker protocol rather
 than Codex-specific types.
@@ -199,8 +199,8 @@ Default policy thresholds are:
 | worker stuck | 0.80 |
 | needs verification | 0.65 |
 | implementation before verification | 0.75 |
-| ready to finish | 0.85 |
-| requirements satisfied | 0.80 |
+| ready to finish | 0.75 |
+| requirements satisfied | 0.75 |
 | tests sufficient | 0.75 |
 
 ## Why Jev?
@@ -265,7 +265,8 @@ foreman run \
 ```
 
 The terminal shows worker lifecycle messages and grouped job/factory-floor assessments. It makes
-explicit when Codex is working and Foreman is independently watching, without animated noise.
+explicit when the coding agent is working and Foreman is independently watching, without animated
+noise.
 
 ## Deterministic demo
 
@@ -276,8 +277,8 @@ deterministic model and worker implementations:
 foreman demo --repo .
 ```
 
-It needs no API key, network, Codex installation, or external repository. The sequence progresses
-from continued implementation, through independent verification, to `FINISH`.
+It needs no API key, network, coding-agent CLI, or external repository. The sequence progresses from
+continued implementation, through independent verification, to `FINISH`.
 
 ## Persistence and inspection
 
@@ -350,7 +351,7 @@ the worker configuration and repository before running either backend.
 - Jev assessment accuracy is unproven for this use case and the semantic scores need calibration.
 - False positives can stop useful workers; false negatives can allow bad work to continue.
 - Repository observations are necessarily incomplete and bounded.
-- Codex remains responsible for software-engineering reasoning and tool use.
+- The selected coding agent remains responsible for software-engineering reasoning and tool use.
 - Codex App Server is currently experimental and its protocol may change between CLI releases.
 - V1 runs one coding worker at a time.
 - Local execution is not isolated.
