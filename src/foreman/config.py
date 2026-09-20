@@ -6,6 +6,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from foreman.models import AbstainCategory
+
 
 def _environment_bool(value: str) -> bool:
     normalized = value.strip().lower()
@@ -14,6 +16,24 @@ def _environment_bool(value: str) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     raise ValueError(f"invalid boolean environment value: {value!r}")
+
+
+def _environment_abstain_categories(value: str) -> list[AbstainCategory]:
+    """Parse a comma-separated FOREMAN_ALWAYS_ABSTAIN value."""
+
+    categories: list[AbstainCategory] = []
+    for raw in value.split(","):
+        name = raw.strip().lower()
+        if not name:
+            continue
+        try:
+            categories.append(AbstainCategory(name))
+        except ValueError as error:
+            valid = ", ".join(category.value for category in AbstainCategory)
+            raise ValueError(
+                f"invalid abstain category {raw!r}; expected one of: {valid}"
+            ) from error
+    return categories
 
 
 class FactoryConfig(BaseModel):
@@ -40,6 +60,10 @@ class FactoryConfig(BaseModel):
     off_track_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     agents_drift_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     stuck_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
+    decision_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
+    always_abstain: list[AbstainCategory] = Field(
+        default_factory=lambda: list(AbstainCategory)
+    )
     verification_threshold: float = Field(default=0.65, ge=0.0, le=1.0)
     finish_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
     requirements_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
@@ -71,6 +95,8 @@ class FactoryConfig(BaseModel):
                 "max_consecutive_assessment_failures",
                 int,
             ),
+            "FOREMAN_DECISION_THRESHOLD": ("decision_threshold", float),
+            "FOREMAN_ALWAYS_ABSTAIN": ("always_abstain", _environment_abstain_categories),
             "FOREMAN_CODEX_BACKEND": ("codex_backend", str),
             "FOREMAN_STEERING_ENABLED": (
                 "steering_enabled",

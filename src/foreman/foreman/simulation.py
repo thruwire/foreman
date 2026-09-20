@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 
-from foreman.models import FactoryAssessment
+from foreman.models import Decision, DecisionRequest, FactoryAssessment
 from foreman.observation import FactoryObservation
 
 DEMO_ASSESSMENTS = [
@@ -65,16 +65,20 @@ class FakeForemanModel:
         self,
         assessments: Sequence[FactoryAssessment] | None = None,
         *,
+        decisions: Sequence[Decision] | None = None,
         delay_seconds: float = 0.0,
         repeat_last: bool = True,
     ) -> None:
         self.assessments = list(assessments or DEMO_ASSESSMENTS)
         if not self.assessments:
             raise ValueError("at least one fake assessment is required")
+        self.decisions = list(decisions or [])
         self.delay_seconds = delay_seconds
         self.repeat_last = repeat_last
         self.calls: list[FactoryObservation] = []
+        self.decision_calls: list[DecisionRequest] = []
         self._index = 0
+        self._decision_index = 0
 
     async def assess(self, observation: FactoryObservation) -> FactoryAssessment:
         self.calls.append(observation)
@@ -90,3 +94,30 @@ class FakeForemanModel:
 
     async def close(self) -> None:
         return None
+
+    async def decide(self, request: DecisionRequest) -> Decision:
+        """Return a queued decision, or a deterministic default.
+
+        Without queued decisions the fake answers with the first option at
+        high confidence, so offline tests exercise the answered path unless
+        they say otherwise.
+        """
+
+        self.decision_calls.append(request)
+        if self.delay_seconds:
+            await asyncio.sleep(self.delay_seconds)
+        if self.decisions:
+            if self._decision_index >= len(self.decisions):
+                if not self.repeat_last:
+                    raise RuntimeError("fake decision sequence exhausted")
+                return self.decisions[-1].model_copy(deep=True)
+            decision = self.decisions[self._decision_index].model_copy(deep=True)
+            self._decision_index += 1
+            return decision
+        return Decision(
+            choice=request.options[0],
+            confidence=0.95,
+            rationale="deterministic fake decision",
+            classification=[],
+            abstained=False,
+        )

@@ -13,6 +13,7 @@ from rich.table import Table
 
 from foreman.config import FactoryConfig
 from foreman.foreman import FakeForemanModel, JevForemanModel
+from foreman.mcp import MCPServer
 from foreman.models import EventType, FactoryStatus, WorkerType
 from foreman.persistence import PersistenceError, RunStore
 from foreman.runtime import FactoryRuntime
@@ -65,6 +66,33 @@ def run(
     console.print(f"Run ID: [bold]{runtime.state.run_id}[/bold]")
     if status is not FactoryStatus.FINISHED:
         raise typer.Exit(code=1)
+
+
+@app.command()
+def mcp(
+    repo: Annotated[
+        Path,
+        typer.Option("--repo", exists=True, file_okay=False, resolve_path=True),
+    ] = Path("."),
+) -> None:
+    """Start a stdio MCP server exposing the foreman as a decision tool."""
+
+    load_dotenv(repo / ".env", override=False)
+    load_dotenv(override=False)
+    if not os.getenv("TYPESAFE_API_KEY"):
+        console.print(
+            "Missing TYPESAFE_API_KEY. Copy .env.example to .env and add your TypeSafe API key."
+        )
+        raise typer.Exit(code=2)
+    config = FactoryConfig.from_environment()
+    model = JevForemanModel(timeout_seconds=config.jev_timeout_seconds)
+    server = MCPServer(repository=repo, model=model, config=config)
+    try:
+        asyncio.run(server.serve_stdio())
+    except KeyboardInterrupt:
+        raise typer.Exit(code=130) from None
+    finally:
+        asyncio.run(model.close())
 
 
 @app.command()
@@ -178,6 +206,13 @@ def inspect_run(
                 console.print(f"       {label:<16} {float(assessment[key]):.2f}")
         elif event.event_type is EventType.FOREMAN_INTERVENED:
             console.print(f"       {payload.get('action')}: {payload.get('reason', '')}")
+        elif event.event_type is EventType.FOREMAN_DECIDED:
+            status = "answered" if payload.get("answered") else "abstained"
+            console.print(f"{prefix}  Foreman decided: {status}")
+            console.print(f"       choice: {payload.get('choice')}")
+            console.print(
+                f"       confidence: {float(payload.get('confidence', 0.0)):.2f}"
+            )
         elif event.event_type in {EventType.WORKER_STEERED, EventType.WORKER_STEER_FAILED}:
             label = "steered" if event.event_type is EventType.WORKER_STEERED else "steer failed"
             console.print(f"{prefix}  {payload.get('worker_id')} {label}")

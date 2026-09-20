@@ -127,6 +127,13 @@ exec backend. Live steering into an active turn is only available with the Codex
 backend; other backends degrade to stop/retry. See [Worker backends](docs/workers.md) for the
 `Worker` protocol and how to add your own.
 
+### Foreman inside your own session
+
+`foreman mcp` exposes the foreman as an MCP decision tool (`ask_foreman`) for
+interactive coding sessions you drive yourself: the agent delegates its
+multiple-choice questions to the foreman instead of asking you. See
+[Foreman as an MCP decision tool](docs/mcp.md).
+
 ## What Foreman watches
 
 Each observation is compact and bounded. It contains:
