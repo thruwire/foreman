@@ -34,10 +34,10 @@ def test_state_write_leaves_no_temporary_file(state, tmp_path) -> None:
     store = RunStore(tmp_path)
     store.initialize(state)
     store.save_state(state)
-    assert [path.name for path in store.run_dir(state.run_id).iterdir()] == [
+    assert {path.name for path in store.run_dir(state.run_id).iterdir()} == {
         "state.json",
         "events.jsonl",
-    ]
+    }
 
 
 def test_jsonl_events(state, tmp_path) -> None:

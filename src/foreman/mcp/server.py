@@ -4,7 +4,7 @@ import asyncio
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, BinaryIO
 from uuid import uuid4
 
 from pydantic import ValidationError
@@ -226,32 +226,25 @@ class MCPServer:
             request_id, {"content": [{"type": "text", "text": json.dumps(result)}]}
         )
 
-    async def serve_stdio(self) -> None:
-        """Serve JSON-RPC over stdio with LSP-style Content-Length framing."""
+    async def serve_stdio(
+        self,
+        stdin: BinaryIO | None = None,
+        stdout: BinaryIO | None = None,
+    ) -> None:
+        """Serve JSON-RPC over stdio using MCP newline-delimited JSON framing."""
 
         loop = asyncio.get_running_loop()
-        stdin = sys.stdin.buffer
-        stdout = sys.stdout.buffer
+        in_stream = stdin if stdin is not None else sys.stdin.buffer
+        out_stream = stdout if stdout is not None else sys.stdout.buffer
         while True:
-            headers: dict[str, str] = {}
-            while True:
-                line = await loop.run_in_executor(None, stdin.readline)
-                if not line:
-                    return
-                stripped = line.strip()
-                if not stripped:
-                    break
-                name, _, value = stripped.decode("latin-1").partition(":")
-                headers[name.strip().lower()] = value.strip()
-            try:
-                length = int(headers.get("content-length", "0"))
-            except ValueError:
-                continue
-            body = await loop.run_in_executor(None, stdin.read, length)
-            if not body:
+            line = await loop.run_in_executor(None, in_stream.readline)
+            if not line:
                 return
+            line = line.strip()
+            if not line:
+                continue
             try:
-                message = json.loads(body)
+                message = json.loads(line)
             except json.JSONDecodeError:
                 response: dict[str, Any] | None = _error_response(
                     None, -32700, "parse error"
@@ -260,8 +253,6 @@ class MCPServer:
                 response = await self.handle(message)
             if response is None:
                 continue
-            payload = json.dumps(response).encode("utf-8")
-            stdout.write(
-                f"Content-Length: {len(payload)}\r\n\r\n".encode("latin-1") + payload
-            )
-            stdout.flush()
+            payload = json.dumps(response, separators=(",", ":")).encode("utf-8") + b"\n"
+            out_stream.write(payload)
+            out_stream.flush()

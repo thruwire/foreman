@@ -26,6 +26,7 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+err_console = Console(stderr=True)
 
 
 def _run_async(runtime: FactoryRuntime) -> FactoryStatus:
@@ -80,7 +81,7 @@ def mcp(
     load_dotenv(repo / ".env", override=False)
     load_dotenv(override=False)
     if not os.getenv("TYPESAFE_API_KEY"):
-        console.print(
+        err_console.print(
             "Missing TYPESAFE_API_KEY. Copy .env.example to .env and add your TypeSafe API key."
         )
         raise typer.Exit(code=2)

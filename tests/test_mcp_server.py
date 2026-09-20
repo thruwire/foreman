@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 
@@ -176,3 +177,41 @@ async def test_model_failure_becomes_abstain_not_crash(tmp_path):
     result = _content_text(await server.handle(_call()))
     assert result["status"] == "abstained"
     assert "decision model unavailable" in result["rationale"]
+
+
+async def test_serve_stdio_newline_delimited_json(tmp_path):
+    server = _server(tmp_path)
+    init_req = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize"})
+    notification = json.dumps({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    tools_req = json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+
+    input_data = f"{init_req}\n\n{notification}\n{tools_req}\n".encode()
+    stdin = io.BytesIO(input_data)
+    stdout = io.BytesIO()
+
+    await server.serve_stdio(stdin=stdin, stdout=stdout)
+
+    lines = stdout.getvalue().splitlines()
+    assert len(lines) == 2
+
+    init_res = json.loads(lines[0])
+    assert init_res["id"] == 1
+    assert init_res["result"]["serverInfo"]["name"] == "foreman"
+
+    tools_res = json.loads(lines[1])
+    assert tools_res["id"] == 2
+    assert [t["name"] for t in tools_res["result"]["tools"]] == ["ask_foreman"]
+
+
+async def test_serve_stdio_parse_error(tmp_path):
+    server = _server(tmp_path)
+    stdin = io.BytesIO(b"not valid json\n")
+    stdout = io.BytesIO()
+
+    await server.serve_stdio(stdin=stdin, stdout=stdout)
+
+    lines = stdout.getvalue().splitlines()
+    assert len(lines) == 1
+    res = json.loads(lines[0])
+    assert res["error"]["code"] == -32700
+
