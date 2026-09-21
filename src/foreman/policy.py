@@ -109,12 +109,23 @@ class FactoryPolicy:
             and assessment.requirements_satisfied >= self.config.requirements_threshold
             and assessment.tests_sufficient >= self.config.tests_threshold
         )
+        if finish_ready:
+            # Sticky: persist so later noisy/idle assessments still finish
+            # (semantic scores are independent per assessment and oscillate
+            # across backends — observed hermes: 0.37 mid-work → 0.24 idle).
+            state.finish_thresholds_met = True
+        finish_met = state.finish_thresholds_met or finish_ready
         verification_resolved = (
             state.verification_completed
             or assessment.needs_verification < self.config.verification_threshold
         )
-        if not active_id and finish_ready and verification_resolved:
-            return result(InterventionType.FINISH, "completion thresholds satisfied")
+        if not active_id and finish_met and verification_resolved:
+            if finish_ready:
+                return result(InterventionType.FINISH, "completion thresholds satisfied")
+            return result(
+                InterventionType.FINISH,
+                "completion thresholds met earlier; idle reassessment finishes the job",
+            )
 
         should_verify = (
             not active_id
