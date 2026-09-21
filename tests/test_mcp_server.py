@@ -81,7 +81,7 @@ async def test_tool_call_answered_path_and_event_logged(tmp_path):
     assert event.event_type is EventType.FOREMAN_DECIDED
     assert event.payload["answered"] is True
     assert event.payload["choice"] == "a"
-    assert event.payload["effective_threshold"] == 0.8
+    assert event.payload["effective_threshold"] == 0.7
 
 
 async def test_tool_call_abstain_path_leaves_session_alive(tmp_path):

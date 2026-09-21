@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from dotenv import load_dotenv
@@ -155,24 +156,40 @@ def inspect_run(
 
     store = RunStore(repo)
     try:
-        state = store.load_state(run_id)
         events = store.load_events(run_id)
     except PersistenceError as error:
         console.print(str(error))
         raise typer.Exit(code=2) from error
 
-    finished = state.finished_at or state.updated_at
-    duration = max(0.0, (finished - state.started_at).total_seconds())
-    console.print(f"[bold]FOREMAN RUN: {state.run_id}[/bold]")
-    console.print("Job:")
-    console.print(state.job)
-    console.print(f"Duration: {duration_label(duration)}")
-    console.print(f"Workers: {len(state.workers)}")
-    console.print(f"Assessments: {len(state.assessment_history)}")
-    console.print(f"Result: {state.status.value}")
+    try:
+        state = store.load_state(run_id)
+    except PersistenceError:
+        state = None
+
+    if state is not None:
+        finished = state.finished_at or state.updated_at
+        duration = max(0.0, (finished - state.started_at).total_seconds())
+        console.print(f"[bold]FOREMAN RUN: {state.run_id}[/bold]")
+        console.print("Job:")
+        console.print(state.job)
+        console.print(f"Duration: {duration_label(duration)}")
+        console.print(f"Workers: {len(state.workers)}")
+        console.print(f"Assessments: {len(state.assessment_history)}")
+        console.print(f"Result: {state.status.value}")
+        started_at = state.started_at
+    else:
+        started_at = events[0].timestamp if events else datetime.now(UTC)
+        duration = (
+            max(0.0, (events[-1].timestamp - started_at).total_seconds())
+            if len(events) > 1
+            else 0.0
+        )
+        console.print(f"[bold]FOREMAN RUN: {run_id}[/bold]")
+        console.print(f"Duration: {duration_label(duration)}")
+        console.print(f"Events: {len(events)}")
 
     for event in events:
-        offset = (event.timestamp - state.started_at).total_seconds()
+        offset = (event.timestamp - started_at).total_seconds()
         prefix = elapsed_label(offset)
         payload = event.payload
         if event.event_type is EventType.FACTORY_STARTED:
@@ -210,10 +227,16 @@ def inspect_run(
         elif event.event_type is EventType.FOREMAN_DECIDED:
             status = "answered" if payload.get("answered") else "abstained"
             console.print(f"{prefix}  Foreman decided: {status}")
+            if payload.get("question"):
+                q = str(payload.get("question")).replace("\n", " ")
+                console.print(f"       question: {q[:80] + '...' if len(q) > 80 else q}")
             console.print(f"       choice: {payload.get('choice')}")
             console.print(
                 f"       confidence: {float(payload.get('confidence', 0.0)):.2f}"
             )
+            if payload.get("rationale"):
+                r = str(payload.get("rationale")).replace("\n", " ")
+                console.print(f"       rationale: {r[:100] + '...' if len(r) > 100 else r}")
         elif event.event_type in {EventType.WORKER_STEERED, EventType.WORKER_STEER_FAILED}:
             label = "steered" if event.event_type is EventType.WORKER_STEERED else "steer failed"
             console.print(f"{prefix}  {payload.get('worker_id')} {label}")
@@ -240,6 +263,200 @@ def runs(
         job = state.job.replace("\n", " ")
         table.add_row(state.run_id, state.status.value, updated, str(len(state.workers)), job[:70])
     console.print(table)
+
+
+def _find_stores(base_path: Path) -> list[tuple[str, RunStore]]:
+    """Locate RunStore instances in base_path or its immediate child repositories."""
+    base_store = RunStore(base_path)
+    if base_store.runs_dir.exists():
+        return [(base_path.name, base_store)]
+
+    sub_stores: list[tuple[str, RunStore]] = []
+    try:
+        for child in sorted(base_path.iterdir()):
+            if child.is_dir() and not child.name.startswith("."):
+                child_store = RunStore(child)
+                if child_store.runs_dir.exists():
+                    sub_stores.append((child.name, child_store))
+    except (OSError, PermissionError):
+        pass
+    return sub_stores
+
+
+@app.command("decisions")
+def decisions(
+    repo: Annotated[
+        Path,
+        typer.Option(
+            "--repo",
+            exists=True,
+            file_okay=False,
+            resolve_path=True,
+            help="Repository or directory containing .foreman stores",
+        ),
+    ] = Path("."),
+    run_id: Annotated[
+        str | None,
+        typer.Option("--run-id", help="Limit results to a specific session or run ID"),
+    ] = None,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Output machine-readable JSON"),
+    ] = False,
+    show_all: Annotated[
+        bool,
+        typer.Option("--all", "-a", help="Show full question and rationale without truncating"),
+    ] = False,
+) -> None:
+    """Analyze and display autonomous decisions made by the Foreman MCP tool."""
+
+    stores = _find_stores(repo)
+    if not stores:
+        if json_output:
+            console.print(json.dumps({"total": 0, "decisions": []}))
+            return
+        console.print(f"No .foreman runs found in [bold]{repo}[/bold].")
+        return
+
+    records: list[dict[str, Any]] = []
+    for repo_name, store in stores:
+        for event in store.load_decision_events(run_id=run_id):
+            p = event.payload
+            records.append(
+                {
+                    "repo": repo_name,
+                    "run_id": event.run_id,
+                    "timestamp": event.timestamp.isoformat(),
+                    "question": str(p.get("question", "")),
+                    "options": p.get("options", []),
+                    "answered": bool(p.get("answered", False)),
+                    "choice": p.get("choice"),
+                    "confidence": float(p.get("confidence", 0.0)),
+                    "effective_threshold": float(p.get("effective_threshold", 0.70)),
+                    "classification": p.get("classification", []),
+                    "effective_denylist": p.get("effective_denylist", []),
+                    "rationale": str(p.get("rationale", "")),
+                }
+            )
+
+    if not records:
+        if json_output:
+            console.print(json.dumps({"total": 0, "decisions": []}))
+            return
+        target = f"run {run_id}" if run_id else f"repository {repo}"
+        console.print(f"No decisions recorded for [bold]{target}[/bold].")
+        return
+
+    total = len(records)
+    answered_count = sum(1 for r in records if r["answered"])
+    abstained_count = total - answered_count
+    answered_pct = (answered_count / total * 100) if total else 0.0
+    abstained_pct = (abstained_count / total * 100) if total else 0.0
+    avg_conf = sum(r["confidence"] for r in records) / total if total else 0.0
+
+    denylist_count = sum(
+        1
+        for r in records
+        if not r["answered"]
+        and bool(set(r["classification"]) & set(r["effective_denylist"]))
+    )
+    low_conf_count = sum(
+        1
+        for r in records
+        if not r["answered"] and r["confidence"] < r["effective_threshold"]
+    )
+    self_abstained_count = sum(
+        1 for r in records if not r["answered"] and r["choice"] is None
+    )
+
+    if json_output:
+        summary_data = {
+            "total": total,
+            "answered": answered_count,
+            "answered_percentage": round(answered_pct, 2),
+            "abstained": abstained_count,
+            "abstained_percentage": round(abstained_pct, 2),
+            "average_confidence": round(avg_conf, 3),
+            "abstain_reasons": {
+                "denylist_interceptions": denylist_count,
+                "below_threshold": low_conf_count,
+                "model_self_abstained": self_abstained_count,
+            },
+            "decisions": records,
+        }
+        console.print(json.dumps(summary_data, indent=2))
+        return
+
+    summary_table = Table(
+        title="Foreman MCP Decisions Summary",
+        show_header=True,
+        header_style="bold cyan",
+    )
+    summary_table.add_column("Metric")
+    summary_table.add_column("Value", justify="right")
+    summary_table.add_row("Total Decisions", str(total))
+    summary_table.add_row(
+        "Answered",
+        f"[bold green]{answered_count}[/bold green] ({answered_pct:.1f}%)",
+    )
+    summary_table.add_row(
+        "Abstained / Declined",
+        f"[bold yellow]{abstained_count}[/bold yellow] ({abstained_pct:.1f}%)",
+    )
+    summary_table.add_row("Average Confidence", f"{avg_conf:.2f}")
+    summary_table.add_row("  - Denylist Interceptions", str(denylist_count))
+    summary_table.add_row("  - Confidence Below Threshold", str(low_conf_count))
+    summary_table.add_row("  - Model Self-Abstained", str(self_abstained_count))
+    console.print(summary_table)
+
+    table = Table(title="Decision Log", show_header=True, header_style="bold magenta")
+    if len(stores) > 1:
+        table.add_column("Repo", style="dim")
+    table.add_column("Run / Session", style="cyan")
+    table.add_column("Status")
+    table.add_column("Conf / Thresh", justify="right")
+    table.add_column("Choice / Verdict")
+    table.add_column("Question")
+    table.add_column("Rationale")
+
+    for r in records:
+        status_text = (
+            "[bold green]ANSWERED[/bold green]"
+            if r["answered"]
+            else "[bold yellow]ABSTAINED[/bold yellow]"
+        )
+        choice_text = str(r["choice"]) if r["choice"] else "[dim]None[/dim]"
+        conf_thresh = f"{r['confidence']:.2f} / {r['effective_threshold']:.2f}"
+        q_clean = r["question"].replace("\n", " ")
+        rat_clean = r["rationale"].replace("\n", " ")
+        q_display = (
+            q_clean
+            if show_all
+            else (q_clean[:60] + "..." if len(q_clean) > 60 else q_clean)
+        )
+        rat_display = (
+            rat_clean
+            if show_all
+            else (rat_clean[:70] + "..." if len(rat_clean) > 70 else rat_clean)
+        )
+
+        row_args = []
+        if len(stores) > 1:
+            row_args.append(r["repo"])
+        row_args.extend(
+            [
+                r["run_id"],
+                status_text,
+                conf_thresh,
+                choice_text,
+                q_display,
+                rat_display,
+            ]
+        )
+        table.add_row(*row_args)
+
+    console.print(table)
+
 
 
 if __name__ == "__main__":

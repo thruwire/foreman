@@ -118,3 +118,43 @@ def test_initialize_locally_excludes_runtime_directory(state, tmp_path) -> None:
     ).stdout
     assert ".foreman" not in status
     assert "/.foreman/" in (tmp_path / ".git" / "info" / "exclude").read_text()
+
+
+def test_list_run_ids_and_load_decision_events(tmp_path) -> None:
+    store = RunStore(tmp_path)
+    assert store.list_run_ids() == []
+    assert store.load_decision_events() == []
+
+    # Create two runs: one factory run and one MCP run (no state.json)
+    event1 = FactoryEvent(
+        run_id="run-1",
+        event_type=EventType.FOREMAN_DECIDED,
+        payload={"question": "Q1", "answered": True, "choice": "A", "confidence": 0.85},
+    )
+    event2 = FactoryEvent(
+        run_id="run-2",
+        event_type=EventType.FACTORY_STARTED,
+        payload={},
+    )
+    event3 = FactoryEvent(
+        run_id="run-2",
+        event_type=EventType.FOREMAN_DECIDED,
+        payload={"question": "Q2", "answered": False, "choice": None, "confidence": 0.60},
+    )
+
+    store.append_event(event1)
+    store.append_event(event2)
+    store.append_event(event3)
+
+    run_ids = store.list_run_ids()
+    assert set(run_ids) == {"run-1", "run-2"}
+
+    # All decisions across runs
+    decisions = store.load_decision_events()
+    assert len(decisions) == 2
+    assert {d.payload["question"] for d in decisions} == {"Q1", "Q2"}
+
+    # Decisions for specific run
+    run1_decisions = store.load_decision_events(run_id="run-1")
+    assert len(run1_decisions) == 1
+    assert run1_decisions[0].payload["question"] == "Q1"

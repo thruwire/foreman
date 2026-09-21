@@ -60,9 +60,12 @@ class FactoryConfig(BaseModel):
     off_track_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     agents_drift_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     stuck_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
-    decision_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
+    decision_threshold: float = Field(default=0.70, ge=0.0, le=1.0)
     always_abstain: list[AbstainCategory] = Field(
-        default_factory=lambda: list(AbstainCategory)
+        default_factory=lambda: [
+            AbstainCategory.DESTRUCTIVE,
+            AbstainCategory.CREDENTIALS,
+        ]
     )
     verification_threshold: float = Field(default=0.65, ge=0.0, le=1.0)
     finish_threshold: float = Field(default=0.75, ge=0.0, le=1.0)

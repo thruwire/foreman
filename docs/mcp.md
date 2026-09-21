@@ -50,8 +50,8 @@ An answer is returned only when **all** of these hold:
 The policy is layered and tighten-only:
 
 - **Server-side baseline** (the safety floor): `FOREMAN_DECISION_THRESHOLD`
-  (default `0.80`) and `FOREMAN_ALWAYS_ABSTAIN` (comma-separated list,
-  default all four categories). The caller cannot weaken these.
+  (default `0.70`) and `FOREMAN_ALWAYS_ABSTAIN` (comma-separated list,
+  default `destructive,credentials`). The caller cannot weaken these.
 - **Per-call** `min_confidence` and `extra_abstain_categories` can only
   tighten: the effective threshold is the maximum of the two, and the
   effective denylist is the union of both.
@@ -69,13 +69,27 @@ abstention, not a crash.
 | `external`     | Side effects beyond the local machine, incl. cost and exfiltration |
 | `credentials`  | Authentication material, permission grants, signing            |
 
-## Decision log
+## Decision log and analytics
 
 Every decision and abstention is appended as a `FOREMAN_DECIDED` event to
 the repository's `.foreman/runs/<session-id>/events.jsonl`, recording the
-question, classification, choice, confidence, and the effective policy — so
-`foreman inspect <session-id>` shows the MCP-mode history and you can tune
-the threshold and denylist from evidence.
+question, classification, choice, confidence, and the effective policy.
+
+You can inspect individual sessions or calculate aggregate statistics:
+
+- **Inspect an individual session:**
+  ```bash
+  foreman inspect <session-id> --repo ./my-project
+  ```
+- **Aggregate metrics and decision logs:**
+  ```bash
+  foreman decisions --repo ./my-project
+  ```
+  Options:
+  - `--run-id <id>`: Filter decisions for a single session.
+  - `--all` / `-a`: Display full question text and rationales without truncation.
+  - `--json`: Output machine-readable JSON metrics and decision records.
+  - Multi-repo discovery: If `--repo` points to a parent directory (e.g. `~/Projects`), it automatically aggregates decisions across all child project stores.
 
 ## Client configuration
 
@@ -139,9 +153,10 @@ When the `ask_foreman` tool is available from the `foreman` MCP server, delegate
 
 ## When NOT to use `ask_foreman` (Ask the human directly)
 - **User intent & product requirements:** Clarifying what feature the user wants or personal preferences.
-- **Open-ended questions:** Questions without discrete, concrete options.
+- **Open-ended prioritization or planning:** Meta-questions like "What should I work on next?" or "What do you recommend?" (the decision model is trained to abstain on open-ended strategy).
+- **Administrative permission & policy bypasses:** Asking to bypass security or CI gates (e.g. "Should I bypass CI with --admin?").
 - **Credentials & authorization:** Handling secrets, API keys, or permission grants.
-- **Irreversible / destructive actions:** Deployments, dropping databases, or deleting repositories.
+- **Destructive actions:** Deleting repositories, dropping databases, or force-pushing.
 
 ## Protocol
 1. Frame the decision as a multiple-choice question with discrete `options` and detailed `context`.
@@ -177,8 +192,10 @@ When orchestrating autonomous agents (e.g. wave orchestrators, PR review bots, o
 
 To maximize decision accuracy and avoid unnecessary abstentions:
 
-- **Provide 2–4 mutually exclusive options:** Always ensure options are discrete and actionable (e.g. `["Retry with clean worktree", "Skip issue to continue wave", "Escalate to human"]`).
-- **Provide rich context:** Pass relevant test output snippets, file paths, and the trade-offs of each option in the `context` parameter. The decider relies heavily on context to evaluate risk.
+- **Provide 2–4 mutually exclusive options:** Always ensure options are discrete, concrete, and actionable (e.g. `["Retry with clean worktree", "Skip issue to continue wave", "Escalate to human"]`). Never leave choices open-ended.
+- **Frame as technical implementation or error-recovery trade-offs:** Foreman excels when choosing between concrete approaches (e.g., Option A: pass parameter through boundary conditions vs. Option B: use specialized constant). Avoid open-ended questions like "what should I do next?".
+- **Provide rich context:** Pass relevant test output snippets, file paths, error messages, and the trade-offs of each option in the `context` parameter. The decider relies heavily on context to evaluate risk and reach the confidence threshold.
+- **Frame CI/test issues around code and mocks:** Rather than asking for administrative gate-bypasses (`--admin`), formulate test triage as concrete technical choices: `["Mock network transport in fixture", "Update assertion to match new return type", "Escalate to human"]`.
 - **Set advisory `risk_hint`:** If the operation carries potential side effects, provide an advisory string (e.g. `risk_hint="CI retry"` or `risk_hint="merge conflict"`).
 - **Graceful degradation:** Always check `status`. If `abstained`, treat it as an indication that the decision belongs with a human — abstaining is a safety feature, not an error.
 
