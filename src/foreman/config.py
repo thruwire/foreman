@@ -29,12 +29,17 @@ class FactoryConfig(BaseModel):
     max_workers: int = Field(default=3, ge=1)
     max_retries: int = Field(default=1, ge=0)
     max_iterations: int = Field(default=20, ge=1)
-    worker_backend: Literal["codex", "opencode"] = "codex"
+    worker_backend: Literal["codex", "opencode", "hermes"] = "codex"
+    hermes_model: str | None = None
+    hermes_provider: str | None = None
+    hermes_max_turns: int = Field(default=200, ge=1)
+    hermes_toolsets: str | None = None
     max_consecutive_assessment_failures: int = Field(default=3, ge=1)
     codex_backend: Literal["app-server", "exec"] = "app-server"
     steering_enabled: bool = True
     max_steers_per_worker: int = Field(default=1, ge=0)
     steering_grace_seconds: float = Field(default=30.0, ge=0.0)
+    cold_start_grace_seconds: float = Field(default=0.0, ge=0.0)
 
     human_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     off_track_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
@@ -67,6 +72,10 @@ class FactoryConfig(BaseModel):
             "FOREMAN_MAX_RETRIES": ("max_retries", int),
             "FOREMAN_MAX_ITERATIONS": ("max_iterations", int),
             "FOREMAN_WORKER_BACKEND": ("worker_backend", str),
+            "FOREMAN_HERMES_MODEL": ("hermes_model", str),
+            "FOREMAN_HERMES_PROVIDER": ("hermes_provider", str),
+            "FOREMAN_HERMES_MAX_TURNS": ("hermes_max_turns", int),
+            "FOREMAN_HERMES_TOOLSETS": ("hermes_toolsets", str),
             "FOREMAN_MAX_CONSECUTIVE_ASSESSMENT_FAILURES": (
                 "max_consecutive_assessment_failures",
                 int,
@@ -78,6 +87,7 @@ class FactoryConfig(BaseModel):
             ),
             "FOREMAN_MAX_STEERS_PER_WORKER": ("max_steers_per_worker", int),
             "FOREMAN_STEERING_GRACE_SECONDS": ("steering_grace_seconds", float),
+            "FOREMAN_COLD_START_GRACE_SECONDS": ("cold_start_grace_seconds", float),
         }
         values: dict[str, object] = {}
         for env_name, (field_name, converter) in mapping.items():

@@ -1,0 +1,59 @@
+"""Real end-to-end run: Hermes worker + Jev supervisor on the scratch repo."""
+import asyncio
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent / ".env", override=False)
+load_dotenv(override=False)
+
+from foreman.config import FactoryConfig
+from foreman.foreman import JevForemanModel
+from foreman.persistence import RunStore
+from foreman.runtime import FactoryRuntime
+
+REPO = Path(r"C:\Users\tjarman\repos\foreman-scratch")
+JOB = (
+    "Add a `subtract(a, b)` function to calc.py and a test file test_calc.py "
+    "that covers both add and subtract. Run the tests to prove they pass. "
+    "Keep changes minimal."
+)
+
+
+async def main() -> None:
+    config = FactoryConfig(
+        worker_backend="hermes",
+        hermes_max_turns=30,
+        worker_timeout_seconds=900,
+        overall_timeout_seconds=1200,
+        max_workers=3,
+        max_retries=1,
+        assessment_min_interval_seconds=5,
+        periodic_assessment_seconds=20,
+    )
+    store = RunStore(REPO)
+    runtime = FactoryRuntime(
+        repository=REPO,
+        job=JOB,
+        model=JevForemanModel(timeout_seconds=config.jev_timeout_seconds),
+        config=config,
+        store=store,
+        event_sink=lambda event: print(
+            f"[event] {event.event_type.value}: {str(event.payload)[:200]}", flush=True
+        ),
+    )
+
+    state = await runtime.run()
+    print("\n=== FINAL ===")
+    print("status:", state.status.value)
+    print("workers:", len(state.workers), "| retries:", state.retry_count)
+    for w in state.workers:
+        print(f"  {w.worker_id} {w.worker_type.value} -> {w.status.value}")
+    print("run dir:", store.run_dir(state.run_id))
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
