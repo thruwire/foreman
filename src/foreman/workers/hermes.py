@@ -228,6 +228,17 @@ class HermesWorker:
         process = self.process
         if process is None or process.returncode is not None:
             return
+        if os.name == "nt":
+            # Windows has no process groups / killpg; taskkill /T reaches the
+            # whole tree (hermes.exe spawns node children), /F forces it.
+            # asyncio.to_thread keeps the async loop unblocked (ASYNC221).
+            await asyncio.to_thread(
+                subprocess.run,
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                capture_output=True, timeout=15, check=False,
+            )
+            await process.wait()
+            return
         try:
             os.killpg(process.pid, signal.SIGTERM)
         except (ProcessLookupError, PermissionError):

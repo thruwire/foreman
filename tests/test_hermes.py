@@ -16,7 +16,10 @@ def record() -> WorkerRecord:
 
 
 def test_subprocess_command_construction(tmp_path) -> None:
-    command = HermesWorker().command("do work", Path(tmp_path))
+    # probe_capabilities=False pins the modern flag set so this test does not
+    # depend on the hermes build installed on the machine running the suite
+    # (older builds legitimately omit --format/--in; see capability tests).
+    command = HermesWorker(probe_capabilities=False).command("do work", Path(tmp_path))
     assert command[:2] == ["hermes", "chat"]
     assert "--in" in command
     assert str(tmp_path) in command
@@ -33,6 +36,7 @@ def test_command_includes_model_provider_and_toolsets(tmp_path) -> None:
         provider="custom",
         max_turns=40,
         toolsets="terminal,filesystem",
+        probe_capabilities=False,
     )
     command = worker.command("do work", Path(tmp_path))
     assert command[command.index("-m") + 1] == "glm-5.3-flash:cloud"
