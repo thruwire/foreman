@@ -73,6 +73,26 @@ calibration from recorded runs → foreman cold-start grace before first
 off-track stop → hermes router-probe investigation ("Primary auth failed"
 against a router that accepts curl).
 
+## Update: streaming regression root-caused + fixed (2026-09-21 night)
+
+Decisive live-probe comparison (foreman-style pipe + PYTHONUNBUFFERED):
+- cord 0.21.3 tree (36221c6d32): tool_use/tool_result stream LIVE
+- mraize 0.21.4 tag tree (7b3c7aef): only [session] streams; rest at exit
+- hermes origin/main (c56a4429): streams LIVE — upstream fixed it
+
+mraize hermes-agent moved to origin/main (c56a4429), gateway redeployed,
+Slack authenticated. Foreman pilot rerun with streaming + grace + evidence
+fixes + sticky finish: worker completes correctly every run, Jev scores now
+track reality (impl 0.06→0.75, tests →0.48, needs_human ≤0.33), but impl and
+tests never peak together (inverse oscillation: 0.75 impl ↔ 0.16 tests, then
+0.45 impl ↔ 0.43 tests) and ready_to_finish peaks 0.32-0.41 — below the
+finish bar. Worker budget exhausts first. Remaining: score smoothing (EMA)
+in foreman policy or batch threshold fitting — policy now has
+`finish_thresholds_met` sticky flag as groundwork (merged, 6b0740c).
+
+Calibrated pilot config in run_hermes_pilot.py: max_workers=6, grace 30s,
+verifier-threshold 0.45, finish 0.35, req 0.35, tests 0.30, interval 15s.
+
 ## Fleet rollout pointer
 
 Pilot on 1 box (morgoth suggested) with `FOREMAN_WORKER_BACKEND=hermes`,
