@@ -191,10 +191,16 @@ class HermesWorker:
             f"target this path.]\n\n{record.mission}"
         )
         try:
+            env = worker_environment()
+            # Hermes NDJSON events must arrive line-by-line for the supervisor
+            # to see progress; Python block-buffers stdout when piped, so a
+            # long-running worker would stream nothing until exit (Jev then
+            # sees an 'empty' factory and kills healthy workers).
+            env["PYTHONUNBUFFERED"] = "1"
             self.process = await asyncio.create_subprocess_exec(
                 *self.command(record.mission, repository),
                 cwd=repository,
-                env=worker_environment(),
+                env=env,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=True,
