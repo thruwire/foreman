@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -180,3 +181,43 @@ async def test_hermes_worker_malformed_lines_pass_through(monkeypatch, tmp_path)
     assert result.status is WorkerStatus.COMPLETED
     assert "not json at all" in result.stdout
     assert all("kind" not in event for event in events)
+
+
+def test_capability_probe_skips_unsupported_flags(monkeypatch, tmp_path) -> None:
+    """Old hermes builds: no --format stream-json / --in in help -> flags omitted."""
+
+    def fake_help(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args, 0, stdout="usage: hermes chat [-h] [-q QUERY] [-Q] ...", stderr=""
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_help)
+    command = HermesWorker().command("do work", Path(tmp_path))
+    assert "--format" not in command
+    assert "stream-json" not in command
+    assert "--in" not in command
+    assert "-q" in command
+    assert "-Q" in command
+    assert "--max-turns" in command
+
+
+def test_capability_probe_keeps_supported_flags(monkeypatch, tmp_path) -> None:
+    def fake_help(*args, **kwargs):
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            stdout="usage: hermes chat ... --format {text,stream-json} --in DIR --max-turns N",
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_help)
+    command = HermesWorker().command("do work", Path(tmp_path))
+    assert "stream-json" in command
+    assert "--in" in command
+    assert str(tmp_path) in command
+
+
+def test_probe_disabled_assumes_modern_flags(tmp_path) -> None:
+    command = HermesWorker(probe_capabilities=False).command("do work", Path(tmp_path))
+    assert "stream-json" in command
+    assert "--in" in command

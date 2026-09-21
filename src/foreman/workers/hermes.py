@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import signal
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -39,6 +40,7 @@ class HermesWorker:
         extra_args: list[str] | None = None,
         output_limit: int = 50_000,
         graceful_termination_seconds: float = 5.0,
+        probe_capabilities: bool = True,
     ) -> None:
         self.executable = executable
         self.model = model
@@ -48,23 +50,52 @@ class HermesWorker:
         self.extra_args = extra_args or []
         self.output_limit = output_limit
         self.graceful_termination_seconds = graceful_termination_seconds
+        self.probe_capabilities = probe_capabilities
+        self._caps: dict[str, bool] | None = None
         self.process: asyncio.subprocess.Process | None = None
         self._termination_reason: str | None = None
 
+    def _probe_capabilities(self) -> dict[str, bool]:
+        """Detect which chat flags this hermes build supports (runs once).
+
+        Older Hermes releases lack ``--format stream-json`` and/or ``--in``.
+        Missing stream-json degrades observation to raw stdout text; missing
+        ``--in`` is safe because the subprocess cwd is the repository anyway.
+        """
+        if self._caps is not None:
+            return self._caps
+        if not self.probe_capabilities:
+            self._caps = {"format_stream_json": True, "in_flag": True}
+            return self._caps
+        caps = {"format_stream_json": False, "in_flag": False}
+        try:
+            r = subprocess.run(
+                [self.executable, "chat", "--help"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                encoding="utf-8",
+                errors="replace",
+            )
+            help_text = (r.stdout or "") + (r.stderr or "")
+            caps["format_stream_json"] = "stream-json" in help_text
+            caps["in_flag"] = "--in" in help_text
+        except Exception:
+            # Probe failure: assume the modern flag set; launch errors surface
+            # in run() as before.
+            caps = {"format_stream_json": True, "in_flag": True}
+        self._caps = caps
+        return caps
+
     def command(self, mission: str, repository: Path) -> list[str]:
-        command = [
-            self.executable,
-            "chat",
-            "--in",
-            str(repository),
-            "-q",
-            mission,
-            "-Q",
-            "--format",
-            "stream-json",
-            "--max-turns",
-            str(self.max_turns),
-        ]
+        caps = self._probe_capabilities()
+        command = [self.executable, "chat"]
+        if caps["in_flag"]:
+            command.extend(["--in", str(repository)])
+        command.extend(["-q", mission, "-Q"])
+        if caps["format_stream_json"]:
+            command.extend(["--format", "stream-json"])
+        command.extend(["--max-turns", str(self.max_turns)])
         if self.model is not None:
             command.extend(["-m", self.model])
         if self.provider is not None:
