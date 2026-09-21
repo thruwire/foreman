@@ -41,6 +41,18 @@ class FactoryPolicy:
             return result(InterventionType.ESCALATE, "maximum Foreman iterations reached")
 
         if active_id:
+            # Cold-start grace: a freshly launched worker (hermes boots in
+            # ~5-10s and streams no evidence until it works) cannot be
+            # meaningfully judged stuck/off-track. Skip the stop/steer branch
+            # until it has had the configured window to produce evidence.
+            _active = next((w for w in state.workers if w.worker_id == active_id), None)
+            _age = (_active.duration_seconds if _active and _active.started_at else None) or 0.0
+            if _age < self.config.cold_start_grace_seconds:
+                return result(
+                    InterventionType.CONTINUE,
+                    "active worker is within the cold-start grace period",
+                    active_id,
+                )
             off_track = assessment.work_off_track >= self.config.off_track_threshold
             agents_drift = assessment.agents_md_drift >= self.config.agents_drift_threshold
             stuck = assessment.worker_stuck >= self.config.stuck_threshold
