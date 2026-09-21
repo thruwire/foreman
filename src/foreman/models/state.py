@@ -54,6 +54,7 @@ class FactoryState(BaseModel):
     consecutive_assessment_failures: int = Field(default=0, ge=0)
     verification_started: bool = False
     verification_completed: bool = False
+    finish_thresholds_met: bool = False
 
     @model_validator(mode="after")
     def validate_worker_references(self) -> FactoryState:
