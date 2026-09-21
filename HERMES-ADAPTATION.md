@@ -62,6 +62,17 @@ Worker env never receives TYPESAFE_* (same filtering as other backends).
   candidates for an upstream PR (test ordering assertion + drift/steer
   integration path).
 
+## mraize deploy findings (2026-09-21)
+
+Hermes on mraize updated 0.21.0 → 0.21.4 (see vault Projects note). Full pilot
+loop escalates: hermes 0.21.4 buffers NDJSON (only [session] streams live;
+tool events arrive at process exit), so Jev's mid-run observations are
+evidence-poor → needs_human 0.75-0.82 → ESCALATE. Worker itself verified fine
+(23s, 84 events, 4 tool_use, correct repo). Fix order: Jev threshold
+calibration from recorded runs → foreman cold-start grace before first
+off-track stop → hermes router-probe investigation ("Primary auth failed"
+against a router that accepts curl).
+
 ## Fleet rollout pointer
 
 Pilot on 1 box (morgoth suggested) with `FOREMAN_WORKER_BACKEND=hermes`,
