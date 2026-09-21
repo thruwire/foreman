@@ -188,7 +188,9 @@ class HermesWorker:
             f"[Working directory: {repo_path}. Run every shell command from "
             f'this directory (prefix with `cd "{repo_path}"` or set it '
             f"explicitly); all repository work, tests, and git commands "
-            f"target this path.]\n\n{record.mission}"
+            f"target this path. Do NOT commit or push: leave all changes "
+            f"uncommitted in the working tree — the supervisor reads the "
+            f"evidence from the git diff.]\n\n{record.mission}"
         )
         try:
             env = worker_environment()
