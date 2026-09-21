@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ class FactoryObservation(BaseModel):
     worker_elapsed_seconds: dict[str, float]
     git_status: str
     git_diff: str
+    untracked_evidence: str = ""
     changed_files: list[str]
     agents_md_path: str | None = None
     agents_md_instructions: str = ""
@@ -98,9 +100,7 @@ def _bounded_worker(worker: WorkerRecord, output_limit: int) -> dict[str, Any]:
         "codex_turn_id": worker.codex_turn_id,
         "supports_steering": worker.supports_steering,
         "steer_count": worker.steer_count,
-        "last_steered_at": (
-            worker.last_steered_at.isoformat() if worker.last_steered_at else None
-        ),
+        "last_steered_at": (worker.last_steered_at.isoformat() if worker.last_steered_at else None),
         "steering_history": worker.steering_history[-3:],
     }
 
@@ -120,6 +120,85 @@ async def _git(repository: Path, *args: str, limit: int) -> str:
         return ""
     output = stdout if process.returncode == 0 else stderr
     return _tail(output.decode("utf-8", errors="replace"), limit)
+
+
+def _untracked_evidence(repository: Path, git_status: str, limit: int) -> str:
+    """Bounded head-of-content for untracked files named in git_status.
+
+    hermes-style workers write test files as new (untracked) files; `git diff`
+    never shows them, leaving the supervisor without test evidence. Include a
+    bounded excerpt of each untracked text file (up to 3 files, ~4k chars
+    total) so assessments can see new tests/source. Binary-looking files are
+    skipped. Read-only: the repository is never mutated.
+    """
+    paths: list[str] = []
+    for line in git_status.splitlines():
+        line = line.strip()
+        if line.startswith("?? "):
+            candidate = line[3:].strip().strip('"')
+            if candidate and not candidate.endswith("/"):
+                paths.append(candidate)
+    if not paths:
+        return ""
+
+    per_file = max(500, limit // 3)
+    chunks: list[str] = []
+    collected = 0
+    for name in paths[:3]:
+        path = repository / name
+        try:
+            if not path.is_file() or path.stat().st_size > 1_000_000:
+                continue
+            raw = path.read_bytes()
+        except OSError:
+            continue
+        if b"\x00" in raw[:4096]:
+            continue  # binary
+        text = raw.decode("utf-8", errors="replace")
+        excerpt = text[:per_file]
+        if len(text) > per_file:
+            excerpt += f"\n... (truncated, {len(text)} chars total)"
+        chunks.append(f"--- untracked: {name} ---\n{excerpt}")
+        collected += len(excerpt)
+        if collected >= limit:
+            break
+    return "\n".join(chunks)
+
+
+_PYTEST_LINE = re.compile(
+    r"^(?:=+\s*)?"
+    r"(?P<parts>(?:(?:\d+\s+\w+)(?:,\s*)?)+)"
+    r"\s+in\s+(?P<time>[\d.]+)s"
+    r"(?:\s*=+)?\s*$"
+)
+
+
+def _pytest_summary_from_output(output: str) -> list[dict[str, Any]]:
+    """Extract pytest summary lines from worker output into test_results
+    entries so assessments can key on executed test evidence even when the
+    backend streams no structured events (hermes buffers NDJSON on Windows).
+    Handles 'N passed', 'N failed, M passed', 'N error' orderings.
+    """
+    results: list[dict[str, Any]] = []
+    for line in output.splitlines():
+        match = _PYTEST_LINE.match(line.strip())
+        if not match:
+            continue
+        parts = {
+            word.lower(): int(count)
+            for count, word in re.findall(r"(\d+)\s+([A-Za-z]+)", match.group("parts"))
+        }
+        if not parts:
+            continue
+        results.append(
+            {
+                "source": "worker_output",
+                "passed": parts.get("passed", 0),
+                "failed": parts.get("failed", 0) + parts.get("error", 0),
+                "summary": line.strip()[:200],
+            }
+        )
+    return results
 
 
 class ObservationBuilder:
@@ -154,9 +233,7 @@ class ObservationBuilder:
             run_id=state.run_id,
             factory_status=state.status.value,
             iteration=state.iteration,
-            active_workers=[
-                _bounded_worker(worker, self.config.output_limit) for worker in active
-            ],
+            active_workers=[_bounded_worker(worker, self.config.output_limit) for worker in active],
             worker_history=[
                 _bounded_worker(worker, self.config.output_limit) for worker in history
             ],
@@ -171,12 +248,19 @@ class ObservationBuilder:
             },
             git_status=git_status,
             git_diff=git_diff,
+            untracked_evidence=_untracked_evidence(
+                repository, git_status, min(self.config.diff_limit, 12_000)
+            ),
             changed_files=[line for line in names.splitlines() if line][
                 : self.config.worker_history_limit * 10
             ],
             agents_md_path=agents_md_path,
             agents_md_instructions=agents_md_instructions,
-            test_results=[],
+            test_results=_pytest_summary_from_output(
+                (latest.stdout or "") + "\n" + (latest.stderr or "")
+            )
+            if latest
+            else [],
             verification_results=[
                 result.model_dump(mode="json") for result in state.verification_results
             ],
