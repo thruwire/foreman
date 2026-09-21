@@ -29,9 +29,11 @@ async def main() -> None:
         hermes_max_turns=30,
         worker_timeout_seconds=900,
         overall_timeout_seconds=1200,
-        max_workers=3,
+        max_workers=5,
+        cold_start_grace_seconds=30.0,
+        implementation_for_verification_threshold=0.45,
+        assessment_min_interval_seconds=15,
         max_retries=1,
-        assessment_min_interval_seconds=5,
         periodic_assessment_seconds=20,
     )
     store = RunStore(REPO)
