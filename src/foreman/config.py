@@ -42,6 +42,8 @@ class FactoryConfig(BaseModel):
     cold_start_grace_seconds: float = Field(default=0.0, ge=0.0)
     score_smoothing_alpha: float = Field(default=1.0, ge=0.0, le=1.0)
     use_smoothed_scores: bool = False
+    verify_tests_on_complete: bool = False
+    test_command_timeout: float = Field(default=120.0, gt=0.0)
 
     human_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     off_track_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
@@ -92,6 +94,8 @@ class FactoryConfig(BaseModel):
             "FOREMAN_COLD_START_GRACE_SECONDS": ("cold_start_grace_seconds", float),
             "FOREMAN_SCORE_SMOOTHING_ALPHA": ("score_smoothing_alpha", float),
             "FOREMAN_USE_SMOOTHED_SCORES": ("use_smoothed_scores", _environment_bool),
+            "FOREMAN_VERIFY_TESTS_ON_COMPLETE": ("verify_tests_on_complete", _environment_bool),
+            "FOREMAN_TEST_COMMAND_TIMEOUT": ("test_command_timeout", float),
         }
         values: dict[str, object] = {}
         for env_name, (field_name, converter) in mapping.items():
