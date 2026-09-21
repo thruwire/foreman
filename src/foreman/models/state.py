@@ -55,6 +55,7 @@ class FactoryState(BaseModel):
     verification_started: bool = False
     verification_completed: bool = False
     finish_thresholds_met: bool = False
+    smoothed_scores: dict[str, float] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_worker_references(self) -> FactoryState:

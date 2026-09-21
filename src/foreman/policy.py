@@ -21,6 +21,33 @@ class FactoryPolicy:
     def decide(self, state: FactoryState, assessment: FactoryAssessment) -> Intervention:
         iteration = max(1, state.iteration)
 
+        # EMA score smoothing: per-assessment scores are independent and
+        # oscillate across backends (observed hermes: impl 0.75 ↔ 0.45,
+        # tests 0.16 ↔ 0.43 alternating while work is stable). Thresholding
+        # the smoothed estimate tracks genuine movement instead of noise.
+        # alpha=1 disables smoothing (default, upstream behavior).
+        smoothing_fields = (
+            "implementation_complete",
+            "tests_sufficient",
+            "requirements_satisfied",
+            "ready_to_finish",
+            "needs_human",
+            "needs_verification",
+            "meaningful_progress",
+            "worker_stuck",
+            "work_off_track",
+            "agents_md_drift",
+        )
+        if self.config.use_smoothed_scores and self.config.score_smoothing_alpha < 1.0:
+            alpha = self.config.score_smoothing_alpha
+            prev = state.smoothed_scores
+            for name in smoothing_fields:
+                raw = float(getattr(assessment, name))
+                prev_val = prev.get(name)
+                smoothed = raw if prev_val is None else alpha * raw + (1 - alpha) * prev_val
+                state.smoothed_scores[name] = smoothed
+                setattr(assessment, name, smoothed)
+
         def result(
             action: InterventionType, reason: str, worker_id: str | None = None
         ) -> Intervention:
