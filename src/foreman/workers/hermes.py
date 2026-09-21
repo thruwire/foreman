@@ -179,6 +179,17 @@ class HermesWorker:
     ) -> WorkerRecord:
         record.status = WorkerStatus.RUNNING
         record.started_at = datetime.now(UTC)
+        # Some hermes builds resolve the terminal cwd from config/env rather
+        # than the process cwd (or accept --in but still seed the shell from
+        # terminal.cwd). Pin the workspace in the mission itself so the agent
+        # cds first no matter where the tool layer starts the shell.
+        repo_path = str(repository)
+        record.mission = (
+            f"[Working directory: {repo_path}. Run every shell command from "
+            f'this directory (prefix with `cd "{repo_path}"` or set it '
+            f"explicitly); all repository work, tests, and git commands "
+            f"target this path.]\n\n{record.mission}"
+        )
         try:
             self.process = await asyncio.create_subprocess_exec(
                 *self.command(record.mission, repository),
@@ -235,7 +246,9 @@ class HermesWorker:
             await asyncio.to_thread(
                 subprocess.run,
                 ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                capture_output=True, timeout=15, check=False,
+                capture_output=True,
+                timeout=15,
+                check=False,
             )
             await process.wait()
             return
