@@ -35,6 +35,7 @@ class FactoryConfig(BaseModel):
     steering_enabled: bool = True
     max_steers_per_worker: int = Field(default=1, ge=0)
     steering_grace_seconds: float = Field(default=30.0, ge=0.0)
+    cold_start_grace_seconds: float = Field(default=0.0, ge=0.0)
 
     human_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     off_track_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
@@ -78,6 +79,7 @@ class FactoryConfig(BaseModel):
             ),
             "FOREMAN_MAX_STEERS_PER_WORKER": ("max_steers_per_worker", int),
             "FOREMAN_STEERING_GRACE_SECONDS": ("steering_grace_seconds", float),
+            "FOREMAN_COLD_START_GRACE_SECONDS": ("cold_start_grace_seconds", float),
         }
         values: dict[str, object] = {}
         for env_name, (field_name, converter) in mapping.items():
