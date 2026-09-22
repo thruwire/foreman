@@ -41,6 +41,7 @@ async def main() -> None:
         defer_human_while_progressing=True,
         human_deferral_liveness_seconds=240,
         stuck_requires_silence_seconds=240,
+        judgment_grace_seconds=300,
         # 20 iterations x ~15s assessments capped a factory at ~5 min, far
         # below overall_timeout; real-sized chunks need the headroom.
         max_iterations=80,

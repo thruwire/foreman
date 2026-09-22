@@ -60,6 +60,9 @@ class FactoryConfig(BaseModel):
     # output for this many seconds (an LLM generating a large file streams
     # nothing for minutes). 0 = trust the assessment alone (upstream).
     stuck_requires_silence_seconds: float = Field(default=0.0, ge=0.0)
+    # For this long after a worker starts, off-track / stuck scores alone do
+    # not stop it (AGENTS.md drift, limits and timeouts still apply). 0 = off.
+    judgment_grace_seconds: float = Field(default=0.0, ge=0.0)
     off_track_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     agents_drift_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     stuck_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
@@ -120,6 +123,7 @@ class FactoryConfig(BaseModel):
                 float,
             ),
             "FOREMAN_STUCK_REQUIRES_SILENCE_SECONDS": ("stuck_requires_silence_seconds", float),
+            "FOREMAN_JUDGMENT_GRACE_SECONDS": ("judgment_grace_seconds", float),
             "FOREMAN_HUMAN_DEFERRAL_LIVENESS_SECONDS": (
                 "human_deferral_liveness_seconds",
                 float,

@@ -103,6 +103,12 @@ class FactoryPolicy:
             off_track = assessment.work_off_track >= self.config.off_track_threshold
             agents_drift = assessment.agents_md_drift >= self.config.agents_drift_threshold
             stuck = assessment.worker_stuck >= self.config.stuck_threshold
+            # Judgment grace: before a worker has had time to read the repo and
+            # produce a first diff, "off track"/"stuck" scores rise on the absence
+            # of evidence alone (observed 0.08 -> 0.84 while it read the spec and
+            # generated its first file). Drift stays live: it is judged on content.
+            if _age < self.config.judgment_grace_seconds:
+                off_track = stuck = False
             silence_needed = self.config.stuck_requires_silence_seconds
             if stuck and silence_needed > 0 and _active is not None:
                 seen = _active.last_output_at or _active.started_at

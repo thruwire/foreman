@@ -292,3 +292,31 @@ def test_off_track_still_stops_a_chatty_worker(state, assessment) -> None:
     config = FactoryConfig(stuck_requires_silence_seconds=240)
     value = with_scores(assessment, work_off_track=0.95)
     assert FactoryPolicy(config).decide(state, value).action is InterventionType.STOP_WORKER
+
+
+def _aged(state, seconds: float) -> None:
+    from datetime import timedelta
+
+    state.workers[0].started_at = datetime.now(UTC) - timedelta(seconds=seconds)
+    state.workers[0].last_output_at = datetime.now(UTC) - timedelta(seconds=seconds)
+
+
+def test_judgment_grace_blocks_early_off_track_and_stuck_stops(state, assessment) -> None:
+    active(state, supports_steering=False)
+    config = FactoryConfig(judgment_grace_seconds=300)
+    _aged(state, 120)
+    for scores in ({"work_off_track": 0.9}, {"worker_stuck": 0.95}):
+        value = with_scores(assessment, **scores)
+        assert FactoryPolicy(config).decide(state, value).action is InterventionType.CONTINUE
+    _aged(state, 400)
+    value = with_scores(assessment, work_off_track=0.9)
+    assert FactoryPolicy(config).decide(state, value).action is InterventionType.STOP_WORKER
+
+
+def test_judgment_grace_never_masks_agents_md_drift(state, assessment) -> None:
+    active(state, supports_steering=False)
+    _aged(state, 60)
+    value = with_scores(assessment, agents_md_drift=0.95)
+    result = FactoryPolicy(FactoryConfig(judgment_grace_seconds=300)).decide(state, value)
+    assert result.action is InterventionType.STOP_WORKER
+    assert "AGENTS.md" in result.reason
