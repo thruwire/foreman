@@ -8,7 +8,14 @@ from foreman.models import (
     ForemanResult,
     InterventionType,
 )
-from foreman.responsibilities import Check, Responsibility, ResponsibilityRegistry
+from foreman.responsibilities import (
+    Check,
+    Responsibility,
+    ResponsibilityRegistry,
+    ResponsibilityRoute,
+    configured_registry,
+)
+from foreman.routing import GlobalResponsibilityRouter, JevResponsibilityRouter, RoutingDecision
 from foreman.runtime import FactoryRuntime
 from foreman.version import __version__
 
@@ -24,4 +31,9 @@ __all__ = [
     "Check",
     "Responsibility",
     "ResponsibilityRegistry",
+    "ResponsibilityRoute",
+    "RoutingDecision",
+    "GlobalResponsibilityRouter",
+    "JevResponsibilityRouter",
+    "configured_registry",
 ]

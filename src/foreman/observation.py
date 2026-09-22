@@ -61,10 +61,14 @@ def _tail(value: str, limit: int) -> str:
     return f"[... {len(value) - limit} earlier characters omitted ...]\n{value[-limit:]}"
 
 
-def _repository_agents_md(repository: Path, limit: int) -> tuple[str | None, str]:
+def _repository_agents_md(
+    repository: Path,
+    filenames: tuple[str, ...],
+    limit: int,
+) -> tuple[str | None, str]:
     """Read the repository-root Codex instructions without retaining them in factory state."""
 
-    for filename in ("AGENTS.override.md", "AGENTS.md"):
+    for filename in filenames:
         path = repository / filename
         if path.is_symlink():
             continue
@@ -121,14 +125,26 @@ async def _git(repository: Path, *args: str, limit: int) -> str:
 
 
 class ObservationBuilder:
-    def __init__(self, store: RunStore, config: FactoryConfig) -> None:
+    def __init__(
+        self,
+        store: RunStore,
+        config: FactoryConfig,
+        *,
+        repository_instruction_files: tuple[str, ...] = (
+            "AGENTS.override.md",
+            "AGENTS.md",
+        ),
+    ) -> None:
         self.store = store
         self.config = config
+        self.repository_instruction_files = repository_instruction_files
 
     async def build(self, state: FactoryState) -> FactoryObservation:
         repository = Path(state.repository)
         agents_md_path, agents_md_instructions = _repository_agents_md(
-            repository, self.config.field_limit
+            repository,
+            self.repository_instruction_files,
+            self.config.field_limit,
         )
         # Git evidence is independent, so gather it without serial subprocess latency.
         status_task = asyncio.create_task(

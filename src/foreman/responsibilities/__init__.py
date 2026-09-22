@@ -1,31 +1,55 @@
-from foreman.responsibilities.base import Check, Responsibility, ResponsibilityRegistry
+from foreman.responsibilities.base import (
+    Check,
+    Responsibility,
+    ResponsibilityRegistry,
+    ResponsibilityRoute,
+)
 from foreman.responsibilities.builtin import (
     COMPLETION,
+    DOCUMENTATION,
     HUMAN_ESCALATION,
     REPOSITORY_INSTRUCTIONS,
     VERIFICATION,
     WORKER_HEALTH,
     CompletionResponsibility,
+    DocumentationResponsibility,
     HumanEscalationResponsibility,
     RepositoryInstructionsResponsibility,
     VerificationResponsibility,
     WorkerHealthResponsibility,
     builtin_registry,
 )
+from foreman.responsibilities.configuration import (
+    CheckFileConfig,
+    ResponsibilityConfigError,
+    ResponsibilityFileConfig,
+    configured_registry,
+    load_responsibility_configs,
+    responsibility_config_dir,
+)
 
 __all__ = [
     "COMPLETION",
+    "DOCUMENTATION",
     "HUMAN_ESCALATION",
     "REPOSITORY_INSTRUCTIONS",
     "VERIFICATION",
     "WORKER_HEALTH",
     "Check",
+    "CheckFileConfig",
     "CompletionResponsibility",
+    "DocumentationResponsibility",
     "HumanEscalationResponsibility",
     "RepositoryInstructionsResponsibility",
     "Responsibility",
+    "ResponsibilityConfigError",
+    "ResponsibilityFileConfig",
     "ResponsibilityRegistry",
+    "ResponsibilityRoute",
     "VerificationResponsibility",
     "WorkerHealthResponsibility",
     "builtin_registry",
+    "configured_registry",
+    "load_responsibility_configs",
+    "responsibility_config_dir",
 ]

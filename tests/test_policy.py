@@ -12,6 +12,7 @@ from foreman.models import (
     WorkerType,
 )
 from foreman.policy import FactoryPolicy
+from foreman.responsibilities import configured_registry
 
 RESPONSIBILITY_BY_CHECK = {
     "implementation_complete": "core.completion",
@@ -71,6 +72,27 @@ def test_start_worker(state, assessment) -> None:
     state.iteration = 1
     result = FactoryPolicy(FactoryConfig()).decide(state, assessment)
     assert result.action is InterventionType.START_WORKER
+
+
+def test_documentation_responsibility_requests_another_pass(state, assessment) -> None:
+    state.iteration = 1
+    state.verification_completed = True
+    candidates = configured_registry(FactoryConfig())
+    active_ids = [*candidates.global_ids(), "quality.documentation"]
+    responsibilities = candidates.routed(active_ids)
+    value = assessment.model_copy(deep=True)
+    value.checks["quality.documentation"] = {"documentation_sufficient": 0.41}
+    value.checks["core.completion"].update(
+        requirements_satisfied=0.95,
+        ready_to_finish=0.95,
+    )
+    value.checks["core.verification"]["tests_sufficient"] = 0.95
+
+    result = FactoryPolicy(FactoryConfig(), responsibilities).evaluate(state, value)
+
+    assert result.selected_directive is not None
+    assert result.selected_directive.action is InterventionType.START_WORKER
+    assert result.selected_directive.responsibility_id == "quality.documentation"
 
 
 def test_start_verifier(state, assessment) -> None:

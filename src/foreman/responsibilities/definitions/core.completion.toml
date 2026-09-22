@@ -1,0 +1,20 @@
+enabled = true
+always = true
+
+[checks.implementation_complete]
+instructions = """
+Is the implementation work required by the original job complete?
+"""
+min_threshold = 0.75
+
+[checks.requirements_satisfied]
+instructions = """
+Does the current repository satisfy the original free-form job as a whole?
+"""
+min_threshold = 0.75
+
+[checks.ready_to_finish]
+instructions = """
+Given all evidence, is the factory job ready to be declared complete?
+"""
+min_threshold = 0.75

@@ -1,0 +1,14 @@
+enabled = true
+always = true
+
+[checks.tests_sufficient]
+instructions = """
+Does the work have sufficient relevant test coverage and passing verification?
+"""
+min_threshold = 0.75
+
+[checks.needs_verification]
+instructions = """
+Does the current state warrant an independent verification pass before finishing?
+"""
+min_threshold = 0.65

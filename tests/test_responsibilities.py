@@ -13,15 +13,15 @@ from foreman.workers import FakeWorker
 
 
 @dataclass
-class LegalReviewResponsibility:
-    id: str = "compliance.legal-review"
+class ExampleReviewResponsibility:
+    id: str = "example.review"
 
     def checks(self) -> tuple[Check, ...]:
         return (
             Check(
                 self.id,
                 "review_required",
-                "Does this work require legal review before it can continue?",
+                "Does this work require an additional review before it can continue?",
             ),
         )
 
@@ -31,7 +31,7 @@ class LegalReviewResponsibility:
         return [
             Directive(
                 action=InterventionType.ESCALATE,
-                reason="legal review is required",
+                reason="an additional review is required",
                 assessment_iteration=max(1, state.iteration),
                 responsibility_id=self.id,
                 priority=1_100,
@@ -41,32 +41,49 @@ class LegalReviewResponsibility:
 
 
 def test_registry_exposes_responsibility_owned_checks() -> None:
-    registry = ResponsibilityRegistry([LegalReviewResponsibility()])
+    registry = ResponsibilityRegistry([ExampleReviewResponsibility()])
 
     assert registry.checks() == (
         Check(
-            "compliance.legal-review",
+            "example.review",
             "review_required",
-            "Does this work require legal review before it can continue?",
+            "Does this work require an additional review before it can continue?",
         ),
     )
 
 
 def test_plugged_in_responsibility_proposes_and_wins_directive(state) -> None:
-    registry = ResponsibilityRegistry([LegalReviewResponsibility()])
-    result = ForemanResult(checks={"compliance.legal-review": {"review_required": 0.94}})
+    registry = ResponsibilityRegistry([ExampleReviewResponsibility()])
+    result = ForemanResult(checks={"example.review": {"review_required": 0.94}})
 
     evaluated = FactoryPolicy(FactoryConfig(), registry).evaluate(state, result)
 
     assert len(evaluated.proposed_directives) == 1
     assert evaluated.selected_directive is not None
     assert evaluated.selected_directive.action is InterventionType.ESCALATE
-    assert evaluated.selected_directive.responsibility_id == "compliance.legal-review"
+    assert evaluated.selected_directive.responsibility_id == "example.review"
 
 
 def test_registry_rejects_duplicate_responsibility_ids() -> None:
     with pytest.raises(ValueError, match="responsibility ids"):
-        ResponsibilityRegistry([LegalReviewResponsibility(), LegalReviewResponsibility()])
+        ResponsibilityRegistry([ExampleReviewResponsibility(), ExampleReviewResponsibility()])
+
+
+@dataclass
+class EmptyResponsibility:
+    id: str = "empty"
+
+    def checks(self) -> tuple[Check, ...]:
+        return ()
+
+    def directives(self, state, result):
+        del state, result
+        return []
+
+
+def test_registry_rejects_responsibility_without_checks() -> None:
+    with pytest.raises(ValueError, match="has no checks"):
+        ResponsibilityRegistry([EmptyResponsibility()])
 
 
 @dataclass
@@ -92,7 +109,7 @@ class RecordingModel:
     async def assess(self, observation, checks):
         del observation
         self.checks = tuple(checks)
-        return ForemanResult(checks={"compliance.legal-review": {"review_required": 0.94}})
+        return ForemanResult(checks={"example.review": {"review_required": 0.94}})
 
     async def close(self) -> None:
         return None
@@ -100,12 +117,12 @@ class RecordingModel:
 
 @pytest.mark.asyncio
 async def test_runtime_evaluates_injected_responsibility(tmp_path) -> None:
-    responsibility = LegalReviewResponsibility()
+    responsibility = ExampleReviewResponsibility()
     registry = ResponsibilityRegistry([responsibility])
     model = RecordingModel()
     runtime = FactoryRuntime(
         repository=tmp_path,
-        job="Draft new customer terms",
+        job="Run work that requires an additional review",
         model=model,
         responsibilities=registry,
         config=FactoryConfig(

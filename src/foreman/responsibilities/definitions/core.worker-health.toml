@@ -1,0 +1,24 @@
+enabled = true
+always = true
+
+[checks.meaningful_progress]
+instructions = """
+Is the active or most recent worker making meaningful progress toward the job?
+"""
+
+[checks.worker_stuck]
+instructions = """
+Does the active or most recent worker appear stuck, looping, or unable to advance?
+"""
+min_threshold = 0.80
+
+[checks.work_off_track]
+instructions = """
+Is the current work drifting from the original job or making unrelated changes?
+"""
+min_threshold = 0.80
+
+[settings]
+steering_enabled = true
+max_steers_per_worker = 1
+steering_grace_seconds = 30

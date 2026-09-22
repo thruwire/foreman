@@ -18,6 +18,9 @@ class TerminalRenderer:
             self.console.print("Job:")
             self.console.print(payload.get("job", ""))
             self.console.print("Factory started.")
+        elif event.event_type is EventType.FOREMAN_ROUTED:
+            active = payload.get("active_responsibility_ids", [])
+            self.console.print(f"Responsibilities active: {', '.join(active)}")
         elif event.event_type in {EventType.WORKER_STARTED, EventType.VERIFICATION_STARTED}:
             label = (
                 "Verification worker"
@@ -57,6 +60,10 @@ class TerminalRenderer:
                 ("Ready to finish", "ready_to_finish"),
             ]:
                 self.console.print(f"  {label:<23} {float(assessment[key]):>3.0%}")
+            if "documentation_sufficient" in assessment:
+                self.console.print(
+                    f"  {'Documentation':<23} {float(assessment['documentation_sufficient']):>3.0%}"
+                )
             self.console.print("Factory floor")
             for label, key in [
                 ("Meaningful progress", "meaningful_progress"),

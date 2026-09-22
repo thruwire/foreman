@@ -20,10 +20,16 @@ must be parsed.
 ## Parallel questions
 
 All active responsibilities' checks share the same compact observation and are submitted in one
-`system_one` call. The built-in registry currently contributes ten checks.
+`system_one` call. Their IDs and Jev instructions come from the active responsibilities' TOML
+definitions. Ten checks are global; the conditional documentation responsibility contributes an
+eleventh when incoming work explicitly requires documentation.
 TypeSafe states that questions in a request are evaluated independently and in parallel. This is a
 good fit for factory supervision: completeness should not have to be generated before stuckness,
 and adding a safety dimension should not extend a token-by-token answer.
+
+The initial responsibility router uses the same property in a separate call: all conditional
+responsibilities are evaluated against the incoming job together, while global responsibilities
+skip routing. Routing chooses which checks participate; it does not choose the eventual directive.
 
 The model still can be wrong. “Typed” means the response shape is constrained; it does not prove
 the semantic judgment. Foreman validates every field, handles timeouts and malformed responses,

@@ -41,6 +41,28 @@ def test_factory_state_rejects_unknown_worker(tmp_path) -> None:
         )
 
 
+def test_factory_state_rejects_unknown_active_responsibility(tmp_path) -> None:
+    with pytest.raises(ValidationError, match="routing candidates"):
+        FactoryState(
+            run_id="abc",
+            job="Do a thing",
+            repository=str(tmp_path),
+            candidate_responsibility_ids=["core.completion"],
+            active_responsibility_ids=["example.conditional"],
+        )
+
+
+def test_factory_state_rejects_invalid_routing_score(tmp_path) -> None:
+    with pytest.raises(ValidationError):
+        FactoryState(
+            run_id="abc",
+            job="Do a thing",
+            repository=str(tmp_path),
+            candidate_responsibility_ids=["example.conditional"],
+            routing_scores={"example.conditional": 1.1},
+        )
+
+
 @pytest.mark.parametrize("field", ["run_id", "job", "repository"])
 def test_factory_state_rejects_empty_required_fields(tmp_path, field) -> None:
     values = {"run_id": "abc", "job": "job", "repository": str(tmp_path)}

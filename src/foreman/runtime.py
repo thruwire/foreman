@@ -26,6 +26,7 @@ from foreman.observation import ObservationBuilder
 from foreman.persistence import RunStore
 from foreman.policy import FactoryPolicy
 from foreman.responsibilities import ResponsibilityRegistry, builtin_registry
+from foreman.routing import ResponsibilityRouter, ResponsibilityRoutingError
 from foreman.steering import build_steering_message
 from foreman.workers import CodexAppServerWorker, CodexWorker, OpenCodeWorker, Worker
 from foreman.workers.codex import mission_for
@@ -56,6 +57,7 @@ class FactoryRuntime:
         run_id: str | None = None,
         event_sink: EventSink | None = None,
         responsibilities: ResponsibilityRegistry | None = None,
+        router: ResponsibilityRouter | None = None,
     ) -> None:
         self.repository = Path(repository).resolve()
         if not self.repository.is_dir():
@@ -65,11 +67,18 @@ class FactoryRuntime:
         self.config = config or FactoryConfig.from_environment()
         self.model = model
         self.store = store or RunStore(self.repository)
-        self.responsibilities = (
+        self.candidate_responsibilities = (
             responsibilities if responsibilities is not None else builtin_registry(self.config)
         )
+        self.router = router
+        initial_ids = self.candidate_responsibilities.global_ids()
+        self.responsibilities = self.candidate_responsibilities.routed(initial_ids)
         self.policy = FactoryPolicy(self.config, self.responsibilities)
-        self.observer = ObservationBuilder(self.store, self.config)
+        self.observer = ObservationBuilder(
+            self.store,
+            self.config,
+            repository_instruction_files=self.responsibilities.repository_instruction_files(),
+        )
         self.event_sink = event_sink
         self.queue: asyncio.Queue[FactoryEvent] = asyncio.Queue()
         self.worker_factory = worker_factory or self._default_worker_factory
@@ -78,10 +87,64 @@ class FactoryRuntime:
             job=job.strip(),
             repository=str(self.repository),
             max_iterations=self.config.max_iterations,
+            candidate_responsibility_ids=[
+                responsibility.id
+                for responsibility in self.candidate_responsibilities.responsibilities
+            ],
+            active_responsibility_ids=list(initial_ids),
         )
         self._workers: dict[str, Worker] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._closed = False
+
+    def _activate_responsibilities(self, responsibility_ids: list[str]) -> None:
+        active = self.candidate_responsibilities.routed(responsibility_ids)
+        if not active.checks():
+            raise ResponsibilityRoutingError("routing activated no responsibility checks")
+        self.responsibilities = active
+        self.policy = FactoryPolicy(self.config, active)
+        self.observer = ObservationBuilder(
+            self.store,
+            self.config,
+            repository_instruction_files=active.repository_instruction_files(),
+        )
+        self.state.active_responsibility_ids = list(responsibility_ids)
+
+    async def _route_work(self) -> None:
+        if self.router is None:
+            return
+        decision = await self.router.route(self.state.job, self.candidate_responsibilities)
+        candidate_ids = {
+            responsibility.id for responsibility in self.candidate_responsibilities.responsibilities
+        }
+        requested_ids = set(decision.active_responsibility_ids)
+        unknown_ids = requested_ids - candidate_ids
+        unknown_scores = set(decision.scores) - candidate_ids
+        if unknown_ids or unknown_scores:
+            unknown = ", ".join(sorted(unknown_ids | unknown_scores))
+            raise ResponsibilityRoutingError(
+                f"routing decision references unknown responsibilities: {unknown}"
+            )
+        requested_ids.update(self.candidate_responsibilities.global_ids())
+        active_ids = [
+            responsibility.id
+            for responsibility in self.candidate_responsibilities.responsibilities
+            if responsibility.id in requested_ids
+        ]
+        try:
+            self._activate_responsibilities(active_ids)
+        except ValueError as error:
+            raise ResponsibilityRoutingError(f"invalid routing decision: {error}") from error
+        self.state.routing_scores = dict(decision.scores)
+        self.state.touch()
+        self.store.save_state(self.state)
+        await self.emit(
+            EventType.FOREMAN_ROUTED,
+            decision.model_copy(update={"active_responsibility_ids": active_ids}).model_dump(
+                mode="json"
+            ),
+            notify_foreman=False,
+        )
 
     def _default_worker_factory(self, worker_type: WorkerType) -> Worker:
         del worker_type
@@ -427,9 +490,21 @@ class FactoryRuntime:
             {"job": self.state.job, "repository": self.state.repository},
             notify_foreman=False,
         )
-        await self.start_worker(WorkerType.CODING)
         try:
+            await self._route_work()
+            await self.start_worker(WorkerType.CODING)
             await asyncio.wait_for(self._watch_loop(), timeout=self.config.overall_timeout_seconds)
+        except ResponsibilityRoutingError as error:
+            self.state.status = FactoryStatus.FAILED
+            self.state.finished_at = datetime.now(UTC)
+            self.state.errors.append(str(error))
+            self.state.touch()
+            self.store.save_state(self.state)
+            await self.emit(
+                EventType.FACTORY_FAILED,
+                {"reason": str(error)},
+                notify_foreman=False,
+            )
         except TimeoutError:
             await self._terminate_active("overall job timeout")
             self.state.status = FactoryStatus.FAILED
@@ -478,4 +553,8 @@ class FactoryRuntime:
         self._closed = True
         if self.state.active_workers:
             await self._terminate_active("factory shutdown")
-        await self.model.close()
+        try:
+            await self.model.close()
+        finally:
+            if self.router is not None:
+                await self.router.close()

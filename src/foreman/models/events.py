@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class EventType(StrEnum):
     FACTORY_STARTED = "FACTORY_STARTED"
+    FOREMAN_ROUTED = "FOREMAN_ROUTED"
     WORKER_STARTED = "WORKER_STARTED"
     WORKER_OUTPUT = "WORKER_OUTPUT"
     WORKER_STEERED = "WORKER_STEERED"

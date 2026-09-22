@@ -15,6 +15,11 @@ from foreman.config import FactoryConfig
 from foreman.foreman import FakeForemanModel, JevForemanModel
 from foreman.models import EventType, FactoryStatus, WorkerType
 from foreman.persistence import PersistenceError, RunStore
+from foreman.responsibilities import (
+    ResponsibilityConfigError,
+    configured_registry,
+)
+from foreman.routing import GlobalResponsibilityRouter, JevResponsibilityRouter
 from foreman.runtime import FactoryRuntime
 from foreman.terminal import TerminalRenderer, duration_label, elapsed_label
 from foreman.workers import FakeWorker
@@ -43,8 +48,25 @@ def run(
         typer.Option("--repo", exists=True, file_okay=False, resolve_path=True, help="Repository"),
     ],
     job: Annotated[str, typer.Option("--job", help="Any free-form software job")],
+    responsibilities_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--responsibilities-dir",
+            file_okay=False,
+            resolve_path=True,
+            help="Optional Foreman-wide responsibility overrides",
+        ),
+    ] = None,
 ) -> None:
     """Launch a real Codex worker supervised by TypeSafe AI Jev."""
+
+    # Capture the process-level factory setting before reading the target repository's
+    # local environment. A managed repository cannot select Foreman's responsibilities.
+    central_responsibilities_dir = responsibilities_dir
+    if central_responsibilities_dir is None:
+        configured = os.getenv("FOREMAN_RESPONSIBILITIES_DIR")
+        if configured:
+            central_responsibilities_dir = Path(configured).expanduser().resolve()
 
     load_dotenv(repo / ".env", override=False)
     load_dotenv(override=False)
@@ -54,13 +76,23 @@ def run(
         )
         raise typer.Exit(code=2)
     config = FactoryConfig.from_environment()
-    runtime = FactoryRuntime(
-        repository=repo,
-        job=job,
-        model=JevForemanModel(timeout_seconds=config.jev_timeout_seconds),
-        config=config,
-        event_sink=TerminalRenderer(console),
-    )
+    try:
+        responsibilities = configured_registry(
+            config,
+            config_dir=central_responsibilities_dir,
+        )
+        runtime = FactoryRuntime(
+            repository=repo,
+            job=job,
+            model=JevForemanModel(timeout_seconds=config.jev_timeout_seconds),
+            config=config,
+            event_sink=TerminalRenderer(console),
+            responsibilities=responsibilities,
+            router=JevResponsibilityRouter(timeout_seconds=config.jev_timeout_seconds),
+        )
+    except ResponsibilityConfigError as error:
+        console.print(str(error))
+        raise typer.Exit(code=2) from error
     status = _run_async(runtime)
     console.print(f"Run ID: [bold]{runtime.state.run_id}[/bold]")
     if status is not FactoryStatus.FINISHED:
@@ -107,6 +139,8 @@ def demo(
         config=config,
         worker_factory=simulated_worker,
         event_sink=TerminalRenderer(console),
+        responsibilities=configured_registry(config),
+        router=GlobalResponsibilityRouter(),
     )
     status = _run_async(runtime)
     console.print(f"Demo run ID: [bold]{runtime.state.run_id}[/bold]")
@@ -140,6 +174,8 @@ def inspect_run(
     console.print(f"Duration: {duration_label(duration)}")
     console.print(f"Workers: {len(state.workers)}")
     console.print(f"Evaluations: {len(state.result_history)}")
+    if state.active_responsibility_ids:
+        console.print(f"Responsibilities: {', '.join(state.active_responsibility_ids)}")
     console.print(f"Result: {state.status.value}")
 
     for event in events:
@@ -148,6 +184,9 @@ def inspect_run(
         payload = event.payload
         if event.event_type is EventType.FACTORY_STARTED:
             console.print(f"{prefix}  Factory started")
+        elif event.event_type is EventType.FOREMAN_ROUTED:
+            active = payload.get("active_responsibility_ids", [])
+            console.print(f"{prefix}  Routed to {', '.join(active)}")
         elif event.event_type in {EventType.WORKER_STARTED, EventType.VERIFICATION_STARTED}:
             label = (
                 "Verification worker"

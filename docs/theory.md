@@ -38,8 +38,9 @@ of what is happening without forcing the worker to yield.
 
 ## Semantic state, deterministic control
 
-The model does not command processes. It estimates named probabilities. Python owns thresholds,
-resource limits, lifecycle history, and the legal action vocabulary.
+The model does not command processes. It estimates named probabilities. Responsibility definitions
+own semantic minimums; Python enforces them alongside resource limits, lifecycle history, and the
+permitted action vocabulary.
 
 This split is important for three reasons:
 
