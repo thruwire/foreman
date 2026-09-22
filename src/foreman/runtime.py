@@ -28,7 +28,7 @@ from foreman.observation import ObservationBuilder
 from foreman.persistence import RunStore
 from foreman.policy import FactoryPolicy
 from foreman.steering import build_steering_message
-from foreman.workers import CodexAppServerWorker, CodexWorker, OpenCodeWorker, Worker
+from foreman.workers import CodexAppServerWorker, CodexWorker, HermesWorker, OpenCodeWorker, Worker
 from foreman.workers.codex import mission_for
 
 EventSink = Callable[[FactoryEvent], object]
@@ -84,6 +84,15 @@ class FactoryRuntime:
         del worker_type
         if self.config.worker_backend == "opencode":
             return OpenCodeWorker(
+                output_limit=self.config.output_limit,
+                graceful_termination_seconds=self.config.graceful_termination_seconds,
+            )
+        if self.config.worker_backend == "hermes":
+            return HermesWorker(
+                model=self.config.hermes_model,
+                provider=self.config.hermes_provider,
+                max_turns=self.config.hermes_max_turns,
+                toolsets=self.config.hermes_toolsets,
                 output_limit=self.config.output_limit,
                 graceful_termination_seconds=self.config.graceful_termination_seconds,
             )
