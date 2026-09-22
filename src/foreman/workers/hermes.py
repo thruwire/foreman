@@ -11,6 +11,9 @@ from pathlib import Path
 from foreman.models import EventType, WorkerRecord, WorkerStatus
 from foreman.workers.base import EventCallback, worker_environment
 
+# Per-line cap for the worker's stdout/stderr readers (asyncio default: 64 KiB).
+STREAM_LINE_LIMIT = 16 * 1024 * 1024
+
 
 class HermesWorker:
     """A worker driving the local Hermes Agent CLI in headless single-query mode.
@@ -114,7 +117,17 @@ class HermesWorker:
     ) -> None:
         if stream is None:
             return
-        while line := await stream.readline():
+        while True:
+            try:
+                line = await stream.readline()
+            except ValueError:
+                # One NDJSON line (a big tool_result) overran the reader limit.
+                # readline() has already discarded the buffered part; keep
+                # reading, otherwise every later event is lost and the full
+                # pipe eventually blocks hermes itself.
+                line = b"[oversized output line truncated]\n"
+            if not line:
+                break
             text = line.decode("utf-8", errors="replace")
             current = getattr(record, stream_name)
             setattr(record, stream_name, (current + text)[-self.output_limit :])
@@ -206,6 +219,9 @@ class HermesWorker:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 start_new_session=True,
+                # hermes emits each tool_result as one NDJSON line; the 64 KiB
+                # default readline limit is routinely exceeded on real repos.
+                limit=STREAM_LINE_LIMIT,
             )
         except Exception as error:
             record.status = WorkerStatus.FAILED

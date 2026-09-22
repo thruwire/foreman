@@ -225,3 +225,45 @@ def test_probe_disabled_assumes_modern_flags(tmp_path) -> None:
     command = HermesWorker(probe_capabilities=False).command("do work", Path(tmp_path))
     assert "stream-json" in command
     assert "--in" in command
+
+
+@pytest.mark.asyncio
+async def test_hermes_worker_survives_oversized_ndjson_line(monkeypatch, tmp_path) -> None:
+    # A single tool_result (e.g. listing a repo with a .venv, or reading a big
+    # spec) can exceed asyncio's 64 KiB readline limit. The reader must keep
+    # going, or every later event is lost and the supervisor sees a silent
+    # worker it then kills as stuck.
+    huge = json.dumps({"type": "tool_result", "name": "terminal", "output": "x" * 200_000})
+    after = json.dumps({"type": "tool_use", "name": "write_file", "input": {"path": "cpl/db.py"}})
+    process = Process((huge + "\n" + after + "\n").encode())
+
+    async def create(*args, **kwargs):
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
+    events = []
+
+    async def emit(event_type, payload) -> None:
+        events.append(payload)
+
+    result = await HermesWorker().run(record(), Path(tmp_path), emit, 1)
+    assert result.status is WorkerStatus.COMPLETED
+    tool_uses = [event for event in events if event.get("kind") == "tool_use"]
+    assert tool_uses and "write_file" in tool_uses[0]["line"]
+    assert any("oversized" in str(event.get("line")) for event in events)
+
+
+def test_hermes_worker_raises_the_subprocess_line_limit(monkeypatch, tmp_path) -> None:
+    captured = {}
+
+    async def create(*args, **kwargs):
+        captured.update(kwargs)
+        return Process(b"")
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
+
+    async def emit(*args) -> None:
+        return None
+
+    asyncio.run(HermesWorker().run(record(), tmp_path, emit, 1))
+    assert captured["limit"] >= 1 << 20
