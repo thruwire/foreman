@@ -47,3 +47,24 @@ async def test_observation_rereads_agents_override_with_precedence(tmp_path) -> 
     assert first.agents_md_instructions == "base instructions"
     assert second.agents_md_path == "AGENTS.override.md"
     assert second.agents_md_instructions == "override instructions"
+
+
+@pytest.mark.asyncio
+async def test_observation_sees_files_inside_new_untracked_directories(tmp_path) -> None:
+    import subprocess
+
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "db.py").write_text("def init_db():\n    return 'schema'\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_db.py").write_text("def test_db():\n    assert True\n", encoding="utf-8")
+    state = FactoryState(run_id="run-1", job="job", repository=str(tmp_path))
+    store = RunStore(tmp_path)
+    store.initialize(state)
+
+    observation = await ObservationBuilder(store, FactoryConfig()).build(state)
+
+    assert "pkg/db.py" in observation.git_status
+    assert "untracked: pkg/db.py" in observation.untracked_evidence
+    assert "def init_db" in observation.untracked_evidence
+    assert "untracked: tests/test_db.py" in observation.untracked_evidence

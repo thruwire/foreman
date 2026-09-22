@@ -122,14 +122,19 @@ async def _git(repository: Path, *args: str, limit: int) -> str:
     return _tail(output.decode("utf-8", errors="replace"), limit)
 
 
+UNTRACKED_FILE_LIMIT = 6
+
+
 def _untracked_evidence(repository: Path, git_status: str, limit: int) -> str:
     """Bounded head-of-content for untracked files named in git_status.
 
     hermes-style workers write test files as new (untracked) files; `git diff`
     never shows them, leaving the supervisor without test evidence. Include a
-    bounded excerpt of each untracked text file (up to 3 files, ~4k chars
-    total) so assessments can see new tests/source. Binary-looking files are
-    skipped. Read-only: the repository is never mutated.
+    bounded excerpt of each untracked text file (up to UNTRACKED_FILE_LIMIT
+    files sharing `limit` chars) so assessments can see new tests/source.
+    Binary-looking files are skipped. Read-only: the repository is never
+    mutated. Expects `git status --untracked-files=all` output; a collapsed
+    `?? dir/` entry carries no file names and is skipped.
     """
     paths: list[str] = []
     for line in git_status.splitlines():
@@ -141,10 +146,11 @@ def _untracked_evidence(repository: Path, git_status: str, limit: int) -> str:
     if not paths:
         return ""
 
-    per_file = max(500, limit // 3)
+    selected = paths[:UNTRACKED_FILE_LIMIT]
+    per_file = max(500, limit // len(selected))
     chunks: list[str] = []
     collected = 0
-    for name in paths[:3]:
+    for name in selected:
         path = repository / name
         try:
             if not path.is_file() or path.stat().st_size > 1_000_000:
@@ -212,8 +218,16 @@ class ObservationBuilder:
             repository, self.config.field_limit
         )
         # Git evidence is independent, so gather it without serial subprocess latency.
+        # --untracked-files=all: without it a new directory collapses to `?? pkg/`
+        # and the untracked-evidence reader sees none of the files inside it.
         status_task = asyncio.create_task(
-            _git(repository, "status", "--short", limit=self.config.field_limit)
+            _git(
+                repository,
+                "status",
+                "--short",
+                "--untracked-files=all",
+                limit=self.config.field_limit,
+            )
         )
         diff_task = asyncio.create_task(
             _git(repository, "diff", "--no-ext-diff", limit=self.config.diff_limit)

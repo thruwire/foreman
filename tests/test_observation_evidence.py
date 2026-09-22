@@ -42,3 +42,14 @@ def test_pytest_parser_extracts_failures() -> None:
 
 def test_pytest_parser_ignores_non_summary_lines() -> None:
     assert _pytest_summary_from_output("just some text\n2 passed something else entirely") == []
+
+
+def test_untracked_evidence_covers_a_multi_file_chunk(tmp_path: Path) -> None:
+    names = [f"pkg/m{i}.py" for i in range(5)]
+    (tmp_path / "pkg").mkdir()
+    for name in names:
+        (tmp_path / name).write_text(f"# {name}\n", encoding="utf-8")
+    status = "\n".join(f"?? {name}" for name in names)
+    evidence = _untracked_evidence(tmp_path, status, 12000)
+    for name in names:
+        assert f"untracked: {name}" in evidence
