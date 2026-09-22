@@ -62,7 +62,21 @@ class FactoryPolicy:
 
         # Order is intentional: safety and hard limits win before productivity decisions.
         if assessment.needs_human >= self.config.human_threshold:
-            return result(InterventionType.ESCALATE, "semantic assessment requires human input")
+            # On long, detailed missions Jev's needs_human drifts upward while a
+            # worker is visibly productive (observed 0.8-0.87 with progress 0.6).
+            # Optionally let a progressing worker finish and re-judge on exit.
+            defer = (
+                self.config.defer_human_while_progressing
+                and active_id is not None
+                and assessment.meaningful_progress >= self.config.progress_threshold_for_deferral
+                and assessment.needs_human < self.config.human_hard_threshold
+            )
+            # Deferred: fall through so iteration limits and stuck/off-track
+            # checks still apply to the active worker.
+            if not defer:
+                return result(
+                    InterventionType.ESCALATE, "semantic assessment requires human input"
+                )
 
         if state.iteration >= state.max_iterations:
             return result(InterventionType.ESCALATE, "maximum Foreman iterations reached")

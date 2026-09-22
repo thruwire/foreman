@@ -207,3 +207,49 @@ def test_worker_capability_takes_precedence_over_backend_name(state, assessment)
     value = with_scores(assessment, worker_stuck=0.95)
     result = FactoryPolicy(FactoryConfig(worker_backend="opencode")).decide(state, value)
     assert result.action is InterventionType.STEER_WORKER
+
+
+DEFER = FactoryConfig(defer_human_while_progressing=True)
+
+
+def test_needs_human_deferred_while_active_worker_progresses(state, assessment) -> None:
+    active(state)
+    value = with_scores(assessment, needs_human=0.85, meaningful_progress=0.6)
+    result = FactoryPolicy(DEFER).decide(state, value)
+    assert result.action is InterventionType.CONTINUE
+
+
+def test_needs_human_deferral_is_off_by_default(state, assessment) -> None:
+    active(state)
+    value = with_scores(assessment, needs_human=0.85, meaningful_progress=0.6)
+    assert FactoryPolicy(FactoryConfig()).decide(state, value).action is InterventionType.ESCALATE
+
+
+def test_needs_human_not_deferred_without_progress_or_worker(state, assessment) -> None:
+    active(state)
+    stalled = with_scores(assessment, needs_human=0.85, meaningful_progress=0.2)
+    assert FactoryPolicy(DEFER).decide(state, stalled).action is InterventionType.ESCALATE
+    state.active_workers.clear()
+    idle = with_scores(assessment, needs_human=0.85, meaningful_progress=0.9)
+    assert FactoryPolicy(DEFER).decide(state, idle).action is InterventionType.ESCALATE
+
+
+def test_needs_human_hard_threshold_always_escalates(state, assessment) -> None:
+    active(state)
+    value = with_scores(assessment, needs_human=0.96, meaningful_progress=0.9)
+    assert FactoryPolicy(DEFER).decide(state, value).action is InterventionType.ESCALATE
+
+
+def test_deferred_worker_is_still_stopped_when_stuck(state, assessment) -> None:
+    active(state, supports_steering=False)
+    value = with_scores(assessment, needs_human=0.85, meaningful_progress=0.5, worker_stuck=0.9)
+    assert FactoryPolicy(DEFER).decide(state, value).action is InterventionType.STOP_WORKER
+
+
+def test_deferral_respects_iteration_limit(state, assessment) -> None:
+    active(state)
+    state.iteration = state.max_iterations
+    value = with_scores(assessment, needs_human=0.85, meaningful_progress=0.6)
+    result = FactoryPolicy(DEFER).decide(state, value)
+    assert result.action is InterventionType.ESCALATE
+    assert "maximum" in result.reason

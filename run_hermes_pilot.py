@@ -38,6 +38,7 @@ async def main() -> None:
         score_smoothing_alpha=0.4,
         verify_tests_on_complete=True,
         cold_start_grace_seconds=30.0,
+        defer_human_while_progressing=True,
         implementation_for_verification_threshold=0.45,
         finish_threshold=0.35,
         requirements_threshold=0.35,

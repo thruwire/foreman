@@ -46,6 +46,12 @@ class FactoryConfig(BaseModel):
     test_command_timeout: float = Field(default=120.0, gt=0.0)
 
     human_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
+    # Defer a needs_human escalation while the active worker is still making
+    # meaningful progress (re-checked when it exits); human_hard_threshold
+    # always escalates immediately. Off by default (upstream behavior).
+    defer_human_while_progressing: bool = False
+    human_hard_threshold: float = Field(default=0.95, ge=0.0, le=1.0)
+    progress_threshold_for_deferral: float = Field(default=0.40, ge=0.0, le=1.0)
     off_track_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     agents_drift_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     stuck_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
@@ -96,6 +102,15 @@ class FactoryConfig(BaseModel):
             "FOREMAN_USE_SMOOTHED_SCORES": ("use_smoothed_scores", _environment_bool),
             "FOREMAN_VERIFY_TESTS_ON_COMPLETE": ("verify_tests_on_complete", _environment_bool),
             "FOREMAN_TEST_COMMAND_TIMEOUT": ("test_command_timeout", float),
+            "FOREMAN_DEFER_HUMAN_WHILE_PROGRESSING": (
+                "defer_human_while_progressing",
+                _environment_bool,
+            ),
+            "FOREMAN_HUMAN_HARD_THRESHOLD": ("human_hard_threshold", float),
+            "FOREMAN_PROGRESS_THRESHOLD_FOR_DEFERRAL": (
+                "progress_threshold_for_deferral",
+                float,
+            ),
         }
         values: dict[str, object] = {}
         for env_name, (field_name, converter) in mapping.items():
