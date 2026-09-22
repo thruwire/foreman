@@ -68,6 +68,7 @@ class FactoryRuntime:
         self.policy = FactoryPolicy(self.config)
         self.observer = ObservationBuilder(self.store, self.config)
         self.event_sink = event_sink
+        self.sink_errors = 0
         self.queue: asyncio.Queue[FactoryEvent] = asyncio.Queue()
         self.worker_factory = worker_factory or self._default_worker_factory
         self.state = FactoryState(
@@ -120,9 +121,21 @@ class FactoryRuntime:
         )
         self.store.append_event(event)
         if self.event_sink is not None:
-            result = self.event_sink(event)
-            if inspect.isawaitable(result):
-                await result
+            # The sink is display-only. Its failure (e.g. a cp1252 console that
+            # cannot print a worker's emoji) must never propagate: emit() runs
+            # inside worker stream readers, and an exception there silently
+            # ends all further worker output.
+            try:
+                result = self.event_sink(event)
+                if inspect.isawaitable(result):
+                    await result
+            except Exception as error:
+                self.sink_errors += 1
+                if self.sink_errors == 1 and sys.stderr is not None:
+                    try:
+                        print(f"foreman: event sink failed: {error!r}", file=sys.stderr)
+                    except Exception:
+                        pass
         # Supervisor-originated events skip the queue so an assessment cannot trigger itself.
         if notify_foreman:
             await self.queue.put(event)

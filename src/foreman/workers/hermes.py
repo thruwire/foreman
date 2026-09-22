@@ -254,7 +254,16 @@ class HermesWorker:
             await self.terminate("cancelled")
             raise
         finally:
-            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+            results = await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+            for stream_name, outcome in zip(("stdout", "stderr"), results, strict=True):
+                if isinstance(outcome, BaseException) and not isinstance(
+                    outcome, asyncio.CancelledError
+                ):
+                    # A dead reader silently blinds the supervisor; leave a trace.
+                    record.stderr = (
+                        f"{record.stderr}\n[foreman: {stream_name} reader failed: "
+                        f"{type(outcome).__name__}: {outcome}]"
+                    )[-self.output_limit :]
             record.finished_at = datetime.now(UTC)
         return record
 

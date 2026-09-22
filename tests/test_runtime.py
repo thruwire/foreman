@@ -201,3 +201,27 @@ async def test_assessment_failure_budget_exhaustion_escalates(tmp_path) -> None:
     escalations = [i for i in state.intervention_history if i.action is InterventionType.ESCALATE]
     assert len(escalations) == 1
     assert "semantic assessment unavailable" in escalations[0].reason
+
+
+@pytest.mark.asyncio
+async def test_failing_event_sink_does_not_break_emit(tmp_path) -> None:
+    # A display sink that cannot encode a worker line (cp1252 stdout vs the
+    # hermes "⚠️ Primary auth failed" notice) used to raise out of emit() into
+    # the worker's stream reader, silently ending all further worker output.
+    def sink(event) -> None:
+        raise UnicodeEncodeError("charmap", "⚠", 0, 1, "character maps to <undefined>")
+
+    runtime = FactoryRuntime(
+        repository=tmp_path,
+        job="job",
+        model=FakeForemanModel([human_assessment()]),
+        config=FactoryConfig(),
+        event_sink=sink,
+    )
+    runtime.store.initialize(runtime.state)
+
+    event = await runtime.emit(EventType.WORKER_OUTPUT, {"line": "⚠ Primary auth failed"})
+
+    assert runtime.queue.get_nowait() is event
+    events = (runtime.store.run_dir(runtime.state.run_id) / "events.jsonl").read_text(encoding="utf-8")
+    assert "Primary auth failed" in events
