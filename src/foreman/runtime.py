@@ -14,6 +14,7 @@ from foreman.config import FactoryConfig
 from foreman.foreman import ForemanModel, ForemanModelError
 from foreman.models import (
     EventType,
+    FactoryAssessment,
     FactoryEvent,
     FactoryState,
     FactoryStatus,
@@ -24,7 +25,7 @@ from foreman.models import (
     WorkerStatus,
     WorkerType,
 )
-from foreman.observation import ObservationBuilder
+from foreman.observation import FactoryObservation, ObservationBuilder
 from foreman.persistence import RunStore
 from foreman.policy import FactoryPolicy
 from foreman.steering import build_steering_message
@@ -333,6 +334,18 @@ class FactoryRuntime:
         )
         return record
 
+    async def _assess_with_shrinking(self, observation: FactoryObservation) -> FactoryAssessment:
+        """Assess; if the model rejects the observation as too large, rebuild it
+        at progressively smaller scale (long multi-worker runs outgrow it)."""
+        for scale in (0.5, 0.25, None):
+            try:
+                return await self.model.assess(observation)
+            except ForemanModelError as error:
+                if scale is None or "max_tokens_exceeded" not in str(error):
+                    raise
+                observation = await self.observer.build(self.state, scale=scale)
+        raise AssertionError("unreachable")
+
     async def _assess(self) -> Intervention | None:
         self.state.iteration += 1
         self.state.touch()
@@ -343,7 +356,7 @@ class FactoryRuntime:
             notify_foreman=False,
         )
         try:
-            assessment = await self.model.assess(observation)
+            assessment = await self._assess_with_shrinking(observation)
         except ForemanModelError as error:
             self.state.errors.append(str(error))
             self.state.consecutive_assessment_failures += 1

@@ -57,6 +57,8 @@ class HermesWorker:
         self._caps: dict[str, bool] | None = None
         self.process: asyncio.subprocess.Process | None = None
         self._termination_reason: str | None = None
+        # exit_code from hermes' own NDJSON `result` event, when one arrived
+        self._result_exit_code: object = None
 
     def _probe_capabilities(self) -> dict[str, bool]:
         """Detect which chat flags this hermes build supports (runs once).
@@ -181,6 +183,9 @@ class HermesWorker:
                         f"session={event.get('session_id', '?')}"
                     )
                     payload["kind"] = "system"
+                elif kind == "result":
+                    payload["kind"] = "result"
+                    self._result_exit_code = event.get("exit_code")
         return payload
 
     async def run(
@@ -240,6 +245,14 @@ class HermesWorker:
                 record.termination_reason = self._termination_reason
             elif self.process.returncode == 0:
                 record.status = WorkerStatus.COMPLETED
+            elif self._result_exit_code == 0:
+                # hermes reported a successful turn, then its post-turn
+                # housekeeping (memory review, cleanup) exited nonzero.
+                record.status = WorkerStatus.COMPLETED
+                record.stderr = (
+                    f"{record.stderr}\n[foreman: hermes exited {self.process.returncode} "
+                    f"after a successful result event]"
+                )[-self.output_limit :]
             else:
                 record.status = WorkerStatus.FAILED
                 record.termination_reason = "nonzero_exit"

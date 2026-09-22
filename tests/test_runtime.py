@@ -242,3 +242,27 @@ async def test_worker_output_updates_last_output_at(tmp_path) -> None:
     assert runtime.state.workers[0].last_output_at is None
     await runtime._worker_emit("w1", EventType.WORKER_OUTPUT, {"line": "x"})
     assert runtime.state.workers[0].last_output_at is not None
+
+
+@pytest.mark.asyncio
+async def test_oversized_observation_is_retried_smaller(tmp_path) -> None:
+    calls = []
+
+    class TooBigOnce:
+        async def assess(self, observation):
+            calls.append(len(observation.model_dump_json()))
+            if len(calls) == 1:
+                raise ForemanModelError("Jev assessment failed: 400 max_tokens_exceeded")
+            return human_assessment()
+
+        async def close(self) -> None:
+            return None
+
+    runtime = FactoryRuntime(repository=tmp_path, job="j" * 40_000, model=TooBigOnce(), config=FactoryConfig())
+    runtime.store.initialize(runtime.state)
+    observation = await runtime.observer.build(runtime.state)
+
+    assessment = await runtime._assess_with_shrinking(observation)
+
+    assert assessment.needs_human == 1
+    assert len(calls) == 2 and calls[1] < calls[0]

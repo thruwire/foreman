@@ -68,3 +68,17 @@ async def test_observation_sees_files_inside_new_untracked_directories(tmp_path)
     assert "untracked: pkg/db.py" in observation.untracked_evidence
     assert "def init_db" in observation.untracked_evidence
     assert "untracked: tests/test_db.py" in observation.untracked_evidence
+
+
+@pytest.mark.asyncio
+async def test_observation_scale_shrinks_bounds(tmp_path) -> None:
+    state = FactoryState(run_id="run-1", job="j" * 40_000, repository=str(tmp_path))
+    store = RunStore(tmp_path)
+    store.initialize(state)
+    builder = ObservationBuilder(store, FactoryConfig())
+
+    full = await builder.build(state)
+    small = await builder.build(state, scale=0.25)
+
+    assert len(small.original_job) < len(full.original_job) / 2
+    assert len(small.model_dump_json()) < len(full.model_dump_json())

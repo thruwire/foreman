@@ -207,16 +207,44 @@ def _pytest_summary_from_output(output: str) -> list[dict[str, Any]]:
     return results
 
 
+def _shrink_events(events: list[dict[str, Any]], scale: float) -> list[dict[str, Any]]:
+    """At reduced scale, also cap each event's worker output line (tool results
+    are routinely several KB each and dominate recent_events)."""
+    if scale >= 1.0:
+        return events
+    cap = max(200, int(2_000 * scale))
+    for event in events:
+        payload = event.get("payload")
+        if isinstance(payload, dict) and isinstance(payload.get("line"), str):
+            line = payload["line"]
+            if len(line) > cap:
+                payload["line"] = line[:cap] + f"... ({len(line)} chars)"
+    return events
+
+
 class ObservationBuilder:
     def __init__(self, store: RunStore, config: FactoryConfig) -> None:
         self.store = store
         self.config = config
 
-    async def build(self, state: FactoryState) -> FactoryObservation:
+    async def build(self, state: FactoryState, *, scale: float = 1.0) -> FactoryObservation:
+        """Build the observation; ``scale`` < 1 shrinks every bound proportionally.
+
+        The runtime rebuilds at a smaller scale when the assessment model
+        rejects an observation as too large (long multi-worker runs).
+        """
+        scale = min(1.0, max(0.05, scale))
+
+        def bound(limit: int) -> int:
+            return max(100, int(limit * scale))
+
+        field_limit = bound(self.config.field_limit)
+        diff_limit = bound(self.config.diff_limit)
+        output_limit = bound(self.config.output_limit)
+        history_limit = max(1, int(self.config.worker_history_limit * scale))
+        event_limit = max(1, int(self.config.event_history_limit * scale))
         repository = Path(state.repository)
-        agents_md_path, agents_md_instructions = _repository_agents_md(
-            repository, self.config.field_limit
-        )
+        agents_md_path, agents_md_instructions = _repository_agents_md(repository, field_limit)
         # Git evidence is independent, so gather it without serial subprocess latency.
         # --untracked-files=all: without it a new directory collapses to `?? pkg/`
         # and the untracked-evidence reader sees none of the files inside it.
@@ -226,33 +254,33 @@ class ObservationBuilder:
                 "status",
                 "--short",
                 "--untracked-files=all",
-                limit=self.config.field_limit,
+                limit=field_limit,
             )
         )
         diff_task = asyncio.create_task(
-            _git(repository, "diff", "--no-ext-diff", limit=self.config.diff_limit)
+            _git(repository, "diff", "--no-ext-diff", limit=diff_limit)
         )
         names_task = asyncio.create_task(
-            _git(repository, "diff", "--name-only", limit=self.config.field_limit)
+            _git(repository, "diff", "--name-only", limit=field_limit)
         )
         git_status, git_diff, names = await asyncio.gather(status_task, diff_task, names_task)
 
         active = [worker for worker in state.workers if worker.worker_id in state.active_workers]
-        history = state.workers[-self.config.worker_history_limit :]
+        history = state.workers[-history_limit:]
         latest = history[-1] if history else None
         elapsed = max(0.0, (datetime.now(UTC) - state.started_at).total_seconds())
 
         return FactoryObservation(
-            original_job=_tail(state.job, self.config.field_limit),
+            original_job=_tail(state.job, field_limit),
             run_id=state.run_id,
             factory_status=state.status.value,
             iteration=state.iteration,
-            active_workers=[_bounded_worker(worker, self.config.output_limit) for worker in active],
+            active_workers=[_bounded_worker(worker, output_limit) for worker in active],
             worker_history=[
-                _bounded_worker(worker, self.config.output_limit) for worker in history
+                _bounded_worker(worker, output_limit) for worker in history
             ],
             latest_worker_output=(
-                _tail(f"{latest.stdout}\n{latest.stderr}", self.config.output_limit)
+                _tail(f"{latest.stdout}\n{latest.stderr}", output_limit)
                 if latest
                 else ""
             ),
@@ -263,10 +291,10 @@ class ObservationBuilder:
             git_status=git_status,
             git_diff=git_diff,
             untracked_evidence=_untracked_evidence(
-                repository, git_status, min(self.config.diff_limit, 12_000)
+                repository, git_status, min(diff_limit, bound(12_000))
             ),
             changed_files=[line for line in names.splitlines() if line][
-                : self.config.worker_history_limit * 10
+                : history_limit * 10
             ],
             agents_md_path=agents_md_path,
             agents_md_instructions=agents_md_instructions,
@@ -278,12 +306,12 @@ class ObservationBuilder:
             verification_results=[
                 result.model_dump(mode="json") for result in state.verification_results
             ],
-            recent_events=self.store.recent_event_dicts(
-                state.run_id, self.config.event_history_limit
+            recent_events=_shrink_events(
+                self.store.recent_event_dicts(state.run_id, event_limit), scale
             ),
             previous_assessment=state.latest_assessment,
             previous_intervention=state.latest_intervention,
             attempts=len(state.workers),
-            failures=state.errors[-self.config.worker_history_limit :],
+            failures=state.errors[-history_limit:],
             elapsed_factory_seconds=elapsed,
         )

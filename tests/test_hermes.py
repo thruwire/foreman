@@ -267,3 +267,38 @@ def test_hermes_worker_raises_the_subprocess_line_limit(monkeypatch, tmp_path) -
 
     asyncio.run(HermesWorker().run(record(), tmp_path, emit, 1))
     assert captured["limit"] >= 1 << 20
+
+
+@pytest.mark.asyncio
+async def test_successful_result_event_wins_over_nonzero_exit(monkeypatch, tmp_path) -> None:
+    result = json.dumps({"type": "result", "exit_code": 0, "text": "done"})
+    process = Process((result + "\n").encode(), returncode=1)
+
+    async def create(*args, **kwargs):
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
+
+    async def emit(*args) -> None:
+        return None
+
+    record_out = await HermesWorker().run(record(), tmp_path, emit, 1)
+    assert record_out.status is WorkerStatus.COMPLETED
+    assert record_out.exit_code == 1
+    assert "after a successful result event" in record_out.stderr
+
+
+@pytest.mark.asyncio
+async def test_failed_result_event_keeps_nonzero_exit_failed(monkeypatch, tmp_path) -> None:
+    result = json.dumps({"type": "result", "exit_code": 1, "text": "error"})
+    process = Process((result + "\n").encode(), returncode=1)
+
+    async def create(*args, **kwargs):
+        return process
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
+
+    async def emit(*args) -> None:
+        return None
+
+    assert (await HermesWorker().run(record(), tmp_path, emit, 1)).status is WorkerStatus.FAILED
