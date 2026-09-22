@@ -18,6 +18,7 @@ from foreman.responsibilities.builtin import (
     builtin_registry,
 )
 from foreman.responsibilities.configuration import (
+    CheckFileConfig,
     ResponsibilityConfigError,
     ResponsibilityFileConfig,
     configured_registry,
@@ -32,6 +33,7 @@ __all__ = [
     "VERIFICATION",
     "WORKER_HEALTH",
     "Check",
+    "CheckFileConfig",
     "CompletionResponsibility",
     "HumanEscalationResponsibility",
     "RepositoryInstructionsResponsibility",

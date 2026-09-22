@@ -42,6 +42,8 @@ class Responsibility(Protocol):
 
     def configured(self, settings: Mapping[str, Any]) -> Responsibility: ...
 
+    def configured_checks(self, checks: Sequence[Check]) -> Responsibility: ...
+
     def route(self) -> ResponsibilityRoute: ...
 
     def checks(self) -> Sequence[Check]: ...
@@ -77,7 +79,10 @@ class ResponsibilityRegistry:
         check_keys: set[str] = set()
         checks: list[Check] = []
         for responsibility in self._responsibilities:
-            for check in responsibility.checks():
+            responsibility_checks = tuple(responsibility.checks())
+            if not responsibility_checks:
+                raise ValueError(f"responsibility {responsibility.id!r} has no checks")
+            for check in responsibility_checks:
                 if check.responsibility_id != responsibility.id:
                     raise ValueError(
                         f"check {check.check_id!r} belongs to {check.responsibility_id!r}, "

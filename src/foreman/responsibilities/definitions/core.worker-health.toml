@@ -1,6 +1,21 @@
 enabled = true
 always = true
 
+[checks.meaningful_progress]
+instructions = """
+Is the active or most recent worker making meaningful progress toward the job?
+"""
+
+[checks.worker_stuck]
+instructions = """
+Does the active or most recent worker appear stuck, looping, or unable to advance?
+"""
+
+[checks.work_off_track]
+instructions = """
+Is the current work drifting from the original job or making unrelated changes?
+"""
+
 [settings]
 off_track_threshold = 0.80
 stuck_threshold = 0.80

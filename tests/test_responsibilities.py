@@ -70,6 +70,23 @@ def test_registry_rejects_duplicate_responsibility_ids() -> None:
 
 
 @dataclass
+class EmptyResponsibility:
+    id: str = "empty"
+
+    def checks(self) -> tuple[Check, ...]:
+        return ()
+
+    def directives(self, state, result):
+        del state, result
+        return []
+
+
+def test_registry_rejects_responsibility_without_checks() -> None:
+    with pytest.raises(ValueError, match="has no checks"):
+        ResponsibilityRegistry([EmptyResponsibility()])
+
+
+@dataclass
 class MisownedCheckResponsibility:
     id: str = "one"
 

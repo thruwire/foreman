@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, ClassVar, Self
 
 from foreman.config import FactoryConfig
 from foreman.models import Directive, FactoryState, ForemanResult, InterventionType
@@ -15,6 +15,22 @@ VERIFICATION = "core.verification"
 WORKER_HEALTH = "core.worker-health"
 REPOSITORY_INSTRUCTIONS = "repository.instructions"
 HUMAN_ESCALATION = "core.human-escalation"
+
+
+class _CheckConfiguredResponsibility:
+    check_definitions: tuple[Check, ...]
+    required_check_ids: ClassVar[frozenset[str]]
+
+    def configured_checks(self, checks: Sequence[Check]) -> Self:
+        configured = tuple(checks)
+        supplied = {check.check_id for check in configured}
+        missing = self.required_check_ids - supplied
+        if missing:
+            raise ValueError(f"missing required checks: {', '.join(sorted(missing))}")
+        return replace(self, check_definitions=configured)
+
+    def checks(self) -> tuple[Check, ...]:
+        return self.check_definitions
 
 
 def _directive(
@@ -82,22 +98,11 @@ def _worker_warning(
 
 
 @dataclass(slots=True)
-class HumanEscalationResponsibility:
+class HumanEscalationResponsibility(_CheckConfiguredResponsibility):
     config: FactoryConfig
+    check_definitions: tuple[Check, ...] = ()
     id: str = HUMAN_ESCALATION
-
-    def route(self) -> ResponsibilityRoute:
-        return ResponsibilityRoute(always=True)
-
-    def checks(self) -> tuple[Check, ...]:
-        return (
-            Check(
-                self.id,
-                "needs_human",
-                "Does this situation require human judgment, credentials, clarification, "
-                "or permission?",
-            ),
-        )
+    required_check_ids: ClassVar[frozenset[str]] = frozenset({"needs_human"})
 
     def directives(self, state: FactoryState, result: ForemanResult) -> list[Directive]:
         score = result.probability(self.id, "needs_human")
@@ -116,10 +121,12 @@ class HumanEscalationResponsibility:
 
 
 @dataclass(slots=True)
-class RepositoryInstructionsResponsibility:
+class RepositoryInstructionsResponsibility(_CheckConfiguredResponsibility):
     config: FactoryConfig
+    check_definitions: tuple[Check, ...] = ()
     id: str = REPOSITORY_INSTRUCTIONS
     instruction_files: tuple[str, ...] = ("AGENTS.override.md", "AGENTS.md")
+    required_check_ids: ClassVar[frozenset[str]] = frozenset({"agents_md_drift"})
 
     def __post_init__(self) -> None:
         if not self.instruction_files:
@@ -128,21 +135,6 @@ class RepositoryInstructionsResponsibility:
             path = PurePosixPath(filename)
             if path.is_absolute() or ".." in path.parts or not filename.strip():
                 raise ValueError(f"invalid repository instruction path: {filename!r}")
-
-    def route(self) -> ResponsibilityRoute:
-        return ResponsibilityRoute(always=True)
-
-    def checks(self) -> tuple[Check, ...]:
-        return (
-            Check(
-                self.id,
-                "agents_md_drift",
-                "When agents_md_instructions is present, is the active or most recent worker's "
-                "behavior or repository work materially inconsistent with those repository "
-                "instructions? Answer no when no AGENTS.md instructions are present or the "
-                "evidence is insufficient.",
-            ),
-        )
 
     def directives(self, state: FactoryState, result: ForemanResult) -> list[Directive]:
         score = result.probability(self.id, "agents_md_drift")
@@ -159,32 +151,13 @@ class RepositoryInstructionsResponsibility:
 
 
 @dataclass(slots=True)
-class WorkerHealthResponsibility:
+class WorkerHealthResponsibility(_CheckConfiguredResponsibility):
     config: FactoryConfig
+    check_definitions: tuple[Check, ...] = ()
     id: str = WORKER_HEALTH
-
-    def route(self) -> ResponsibilityRoute:
-        return ResponsibilityRoute(always=True)
-
-    def checks(self) -> tuple[Check, ...]:
-        return (
-            Check(
-                self.id,
-                "meaningful_progress",
-                "Is the active or most recent worker making meaningful progress toward the job?",
-            ),
-            Check(
-                self.id,
-                "worker_stuck",
-                "Does the active or most recent worker appear stuck, looping, or unable to "
-                "advance?",
-            ),
-            Check(
-                self.id,
-                "work_off_track",
-                "Is the current work drifting from the original job or making unrelated changes?",
-            ),
-        )
+    required_check_ids: ClassVar[frozenset[str]] = frozenset(
+        {"meaningful_progress", "worker_stuck", "work_off_track"}
+    )
 
     def directives(self, state: FactoryState, result: ForemanResult) -> list[Directive]:
         stuck = result.probability(self.id, "worker_stuck")
@@ -208,31 +181,13 @@ class WorkerHealthResponsibility:
 
 
 @dataclass(slots=True)
-class CompletionResponsibility:
+class CompletionResponsibility(_CheckConfiguredResponsibility):
     config: FactoryConfig
+    check_definitions: tuple[Check, ...] = ()
     id: str = COMPLETION
-
-    def route(self) -> ResponsibilityRoute:
-        return ResponsibilityRoute(always=True)
-
-    def checks(self) -> tuple[Check, ...]:
-        return (
-            Check(
-                self.id,
-                "implementation_complete",
-                "Is the implementation work required by the original job complete?",
-            ),
-            Check(
-                self.id,
-                "requirements_satisfied",
-                "Does the current repository satisfy the original free-form job as a whole?",
-            ),
-            Check(
-                self.id,
-                "ready_to_finish",
-                "Given all evidence, is the factory job ready to be declared complete?",
-            ),
-        )
+    required_check_ids: ClassVar[frozenset[str]] = frozenset(
+        {"implementation_complete", "requirements_satisfied", "ready_to_finish"}
+    )
 
     def directives(self, state: FactoryState, result: ForemanResult) -> list[Directive]:
         if state.active_workers:
@@ -284,26 +239,13 @@ class CompletionResponsibility:
 
 
 @dataclass(slots=True)
-class VerificationResponsibility:
+class VerificationResponsibility(_CheckConfiguredResponsibility):
     config: FactoryConfig
+    check_definitions: tuple[Check, ...] = ()
     id: str = VERIFICATION
-
-    def route(self) -> ResponsibilityRoute:
-        return ResponsibilityRoute(always=True)
-
-    def checks(self) -> tuple[Check, ...]:
-        return (
-            Check(
-                self.id,
-                "tests_sufficient",
-                "Does the work have sufficient relevant test coverage and passing verification?",
-            ),
-            Check(
-                self.id,
-                "needs_verification",
-                "Does the current state warrant an independent verification pass before finishing?",
-            ),
-        )
+    required_check_ids: ClassVar[frozenset[str]] = frozenset(
+        {"tests_sufficient", "needs_verification"}
+    )
 
     def directives(self, state: FactoryState, result: ForemanResult) -> list[Directive]:
         should_verify = (
@@ -368,10 +310,20 @@ def builtin_registry(
     config: FactoryConfig,
     *,
     settings: Mapping[str, Mapping[str, Any]] | None = None,
+    checks: Mapping[str, Sequence[Check]] | None = None,
     routes: dict[str, ResponsibilityRoute] | None = None,
 ) -> ResponsibilityRegistry:
     # Instruction compliance precedes worker health so equal warning scores retain
     # the established AGENTS.md-first tie break. Priority still lets human safety win.
+    if checks is None:
+        from foreman.responsibilities.configuration import load_responsibility_configs
+
+        definitions = load_responsibility_configs()
+        checks = {
+            responsibility_id: definition.configured_checks(responsibility_id)
+            for responsibility_id, definition in definitions.items()
+        }
+
     configured = settings or {}
     repository_settings = configured.get(REPOSITORY_INSTRUCTIONS, {})
     configured_files = repository_settings.get(
@@ -385,7 +337,7 @@ def builtin_registry(
     responsibilities = [
         HumanEscalationResponsibility(
             _responsibility_config(config, HUMAN_ESCALATION, configured.get(HUMAN_ESCALATION, {}))
-        ),
+        ).configured_checks(checks.get(HUMAN_ESCALATION, ())),
         RepositoryInstructionsResponsibility(
             _responsibility_config(
                 config,
@@ -393,15 +345,15 @@ def builtin_registry(
                 repository_settings,
             ),
             instruction_files=instruction_files,
-        ),
+        ).configured_checks(checks.get(REPOSITORY_INSTRUCTIONS, ())),
         WorkerHealthResponsibility(
             _responsibility_config(config, WORKER_HEALTH, configured.get(WORKER_HEALTH, {}))
-        ),
+        ).configured_checks(checks.get(WORKER_HEALTH, ())),
         CompletionResponsibility(
             _responsibility_config(config, COMPLETION, configured.get(COMPLETION, {}))
-        ),
+        ).configured_checks(checks.get(COMPLETION, ())),
         VerificationResponsibility(
             _responsibility_config(config, VERIFICATION, configured.get(VERIFICATION, {}))
-        ),
+        ).configured_checks(checks.get(VERIFICATION, ())),
     ]
     return ResponsibilityRegistry(responsibilities, routes=routes)

@@ -189,7 +189,9 @@ checks and directives without changing the Jev adapter or runtime loop.
 
 For real runs, Foreman ships one TOML file per built-in responsibility under
 `src/foreman/responsibilities/definitions/`. Each file owns its global-or-routed behavior, Jev
-routing instructions, threshold, and responsibility-specific settings. An optional central
+routing instructions, recurring Jev check IDs and instructions, thresholds, and
+responsibility-specific settings. The Python class retains directive logic and any observation or
+integration behavior, and declares the check IDs that behavior requires. An optional central
 directory selected with `--responsibilities-dir` or `FOREMAN_RESPONSIBILITIES_DIR` can override
 those files for the whole Foreman installation. Target repositories never supply responsibility
 configuration. Foreman evaluates all non-global candidates in one Jev request and activates every

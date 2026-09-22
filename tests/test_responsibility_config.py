@@ -8,6 +8,7 @@ from foreman.config import FactoryConfig
 from foreman.responsibilities import (
     Check,
     ResponsibilityConfigError,
+    builtin_registry,
     configured_registry,
     load_responsibility_configs,
     responsibility_config_dir,
@@ -30,6 +31,15 @@ def test_packaged_config_uses_all_builtin_defaults() -> None:
         "core.worker-health.toml",
         "repository.instructions.toml",
     ]
+    completion = next(item for item in registry.responsibilities if item.id == "core.completion")
+    assert [check.check_id for check in completion.checks()] == [
+        "implementation_complete",
+        "requirements_satisfied",
+        "ready_to_finish",
+    ]
+    assert completion.checks()[0].instructions == (
+        "Is the implementation work required by the original job complete?\n"
+    )
 
 
 def test_central_responsibility_file_owns_routing_and_settings(tmp_path) -> None:
@@ -81,6 +91,55 @@ stuck_threshold = 0.93
 
     assert responsibility.config.stuck_threshold == 0.93
     assert responsibility.config.off_track_threshold == 0.80
+
+
+def test_central_override_can_replace_one_check_prompt(tmp_path) -> None:
+    write_config(
+        tmp_path,
+        "core.worker-health",
+        """
+[checks.worker_stuck]
+instructions = "Is the worker unable to make forward progress?"
+""".strip(),
+    )
+
+    registry = configured_registry(FactoryConfig(), config_dir=tmp_path)
+    responsibility = next(
+        item for item in registry.responsibilities if item.id == "core.worker-health"
+    )
+    checks = {check.check_id: check.instructions for check in responsibility.checks()}
+
+    assert checks["worker_stuck"] == "Is the worker unable to make forward progress?"
+    assert "meaningful_progress" in checks
+    assert "work_off_track" in checks
+
+
+def test_builtin_class_rejects_missing_required_toml_check() -> None:
+    definitions = load_responsibility_configs()
+    checks = {
+        responsibility_id: definition.configured_checks(responsibility_id)
+        for responsibility_id, definition in definitions.items()
+    }
+    checks["core.completion"] = tuple(
+        check for check in checks["core.completion"] if check.check_id != "ready_to_finish"
+    )
+
+    with pytest.raises(ValueError, match="missing required checks: ready_to_finish"):
+        builtin_registry(FactoryConfig(), checks=checks)
+
+
+def test_empty_check_instructions_are_rejected(tmp_path) -> None:
+    write_config(
+        tmp_path,
+        "core.worker-health",
+        """
+[checks.worker_stuck]
+instructions = " "
+""".strip(),
+    )
+
+    with pytest.raises(ResponsibilityConfigError, match="check instructions cannot be empty"):
+        load_responsibility_configs(tmp_path)
 
 
 def test_responsibility_can_be_disabled(tmp_path) -> None:
@@ -142,6 +201,7 @@ def test_routed_responsibility_requires_instructions(tmp_path) -> None:
 class LegalResponsibility:
     id: str = "compliance.legal"
     review_project_id: str | None = None
+    check_definitions: tuple[Check, ...] = ()
 
     def configured(self, settings):
         unknown = set(settings) - {"review_project_id"}
@@ -149,8 +209,14 @@ class LegalResponsibility:
             raise ValueError(f"unknown legal settings: {', '.join(sorted(unknown))}")
         return replace(self, review_project_id=settings.get("review_project_id"))
 
+    def configured_checks(self, checks):
+        configured = tuple(checks)
+        if {check.check_id for check in configured} != {"required"}:
+            raise ValueError("legal responsibility requires the required check")
+        return replace(self, check_definitions=configured)
+
     def checks(self) -> tuple[Check, ...]:
-        return (Check(self.id, "required", "Is legal review required?"),)
+        return self.check_definitions
 
     def directives(self, state, result):
         del state, result
@@ -165,6 +231,9 @@ def test_config_can_route_an_injected_responsibility(tmp_path) -> None:
 always = false
 routing_instructions = "Does this work require legal review?"
 routing_threshold = 0.81
+
+[checks.required]
+instructions = "Is legal review required for this work?"
 
 [settings]
 review_project_id = "legal-review"
@@ -184,3 +253,6 @@ review_project_id = "legal-review"
     assert route.always is False
     assert route.threshold == 0.81
     assert responsibility.review_project_id == "legal-review"
+    assert responsibility.checks() == (
+        Check("compliance.legal", "required", "Is legal review required for this work?"),
+    )

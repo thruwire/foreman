@@ -6,7 +6,8 @@ threshold is added. Several responsibilities can match the same job.
 
 Responsibility configuration belongs to the centralized Foreman installation, not to a managed
 Git repository. There is no routes file and no target-repository discovery. Each responsibility
-owns its routing semantics and settings in a file named for its implementation.
+owns its routing semantics, recurring Jev checks, and settings in a file named for its
+implementation. Its Python class owns directive logic and other executable behavior.
 
 ## Configuration locations
 
@@ -50,6 +51,11 @@ privacy disclosures, data-retention behavior, or other behavior requiring legal 
 """
 routing_threshold = 0.70
 
+[checks.legal_review_required]
+instructions = """
+Does the completed or proposed work require review by a legal specialist?
+"""
+
 [settings]
 review_project_id = "legal-review"
 ```
@@ -58,6 +64,8 @@ review_project_id = "legal-review"
 - `always = true` makes it global. `always = false` requires `routing_instructions`.
 - `routing_instructions` tells Jev when the responsibility applies.
 - `routing_threshold` is that responsibility's activation threshold.
+- `[checks.<id>]` defines each recurring Jev check and its instructions. The implementation class
+  declares the check IDs its directive logic requires, and startup fails when any are missing.
 - `[settings]` is interpreted and validated by the responsibility implementation.
 
 Completion and verification are required global lifecycle responsibilities. Other built-ins may
@@ -74,7 +82,7 @@ For a real `foreman run`:
 3. Jev evaluates every conditional candidate in one `system_one` request against the incoming job.
 4. Foreman activates every candidate at or above its own threshold.
 5. Candidate IDs, active IDs, routing scores, and `FOREMAN_ROUTED` are persisted with the run.
-6. The selected responsibilities provide checks and directives for the run.
+6. The selected TOML definitions provide Jev checks; their Python classes propose directives.
 7. Only then does Foreman start the first worker.
 
 Malformed configuration or routing output fails before a worker starts. Routing subsequent user
