@@ -1,0 +1,14 @@
+enabled = true
+always = false
+routing_instructions = """
+Does the incoming work explicitly require creating or updating README content, user guides,
+API documentation, release notes, or other documentation delivered with the repository?
+"""
+routing_threshold = 0.70
+
+[checks.documentation_sufficient]
+instructions = """
+When documentation is required by the original job, is the relevant documentation complete,
+accurate, and consistent with the implemented behavior?
+"""
+min_threshold = 0.75

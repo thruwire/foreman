@@ -32,6 +32,7 @@ class CheckFileConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     instructions: str
+    min_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
 
     @field_validator("instructions")
     @classmethod
@@ -86,6 +87,7 @@ class ResponsibilityFileConfig(BaseModel):
                 responsibility_id=responsibility_id,
                 check_id=check_id,
                 instructions=definition.instructions,
+                min_threshold=definition.min_threshold,
             )
             for check_id, definition in self.checks.items()
         )
@@ -133,7 +135,13 @@ def _overlay_config(
     payload = base.model_dump()
     changes = override.model_dump(exclude_unset=True)
     if "checks" in changes:
-        changes["checks"] = {**base.model_dump()["checks"], **changes["checks"]}
+        merged_checks = base.model_dump()["checks"]
+        for check_id, check_changes in changes["checks"].items():
+            merged_checks[check_id] = {
+                **merged_checks.get(check_id, {}),
+                **check_changes,
+            }
+        changes["checks"] = merged_checks
     if "settings" in changes:
         changes["settings"] = {**base.settings, **changes["settings"]}
     return ResponsibilityFileConfig.model_validate({**payload, **changes})

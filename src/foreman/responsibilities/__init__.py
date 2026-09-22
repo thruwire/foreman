@@ -6,11 +6,13 @@ from foreman.responsibilities.base import (
 )
 from foreman.responsibilities.builtin import (
     COMPLETION,
+    DOCUMENTATION,
     HUMAN_ESCALATION,
     REPOSITORY_INSTRUCTIONS,
     VERIFICATION,
     WORKER_HEALTH,
     CompletionResponsibility,
+    DocumentationResponsibility,
     HumanEscalationResponsibility,
     RepositoryInstructionsResponsibility,
     VerificationResponsibility,
@@ -28,6 +30,7 @@ from foreman.responsibilities.configuration import (
 
 __all__ = [
     "COMPLETION",
+    "DOCUMENTATION",
     "HUMAN_ESCALATION",
     "REPOSITORY_INSTRUCTIONS",
     "VERIFICATION",
@@ -35,6 +38,7 @@ __all__ = [
     "Check",
     "CheckFileConfig",
     "CompletionResponsibility",
+    "DocumentationResponsibility",
     "HumanEscalationResponsibility",
     "RepositoryInstructionsResponsibility",
     "Responsibility",

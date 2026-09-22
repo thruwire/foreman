@@ -5,12 +5,10 @@ always = true
 instructions = """
 Does the work have sufficient relevant test coverage and passing verification?
 """
+min_threshold = 0.75
 
 [checks.needs_verification]
 instructions = """
 Does the current state warrant an independent verification pass before finishing?
 """
-
-[settings]
-threshold = 0.65
-implementation_threshold = 0.75
+min_threshold = 0.65

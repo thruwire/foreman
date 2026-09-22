@@ -36,7 +36,7 @@ offline tests; real runs default to Jev and Codex.
 4. Git status/diff and current state become one bounded `FactoryObservation`.
 5. The registry supplies all active responsibilities' checks to one Jev request.
 6. Pydantic validates and groups the check outputs into one `ForemanResult`.
-7. Responsibilities propose directives; policy records all proposals and selects one legal
+7. Responsibilities propose directives; policy records all proposals and selects one permitted
    directive in the same result.
 8. Runtime may steer the active turn, interrupt it, or apply another lifecycle action.
 9. The result, action, and any steering message are persisted before observation continues.

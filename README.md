@@ -181,8 +181,13 @@ Human escalation owns:
 
 - `needs_human`: probability that judgment, credentials, clarification, or permission is needed.
 
-Every dimension is one Jev `Noul` question, whose result is the probability of “yes.” All ten are
-sent in one request. A `ForemanResult` groups check outputs by responsibility, records every
+Documentation quality is conditional. When incoming work explicitly requires repository
+documentation, it owns `documentation_sufficient` and can request another worker pass when that
+check remains below its TOML-defined minimum.
+
+Every dimension is one Jev `Noul` question, whose result is the probability of “yes.” The ten
+global checks—and the documentation check when routed—are sent in one request. A `ForemanResult`
+groups check outputs by responsibility, records every
 proposed directive, and identifies the one selected directive. It is stored in `state.json` and the
 event timeline. The runtime accepts a `ResponsibilityRegistry`, so another responsibility can add
 checks and directives without changing the Jev adapter or runtime loop.
@@ -233,6 +238,10 @@ Default policy thresholds are:
 | ready to finish | 0.75 |
 | requirements satisfied | 0.75 |
 | tests sufficient | 0.75 |
+| documentation sufficient, when routed | 0.75 |
+
+These values are declared as `min_threshold` beside their checks in the responsibility TOMLs; the
+table is only a consolidated view.
 
 ## Why Jev?
 
@@ -354,8 +363,9 @@ The most useful environment overrides are:
 | `FOREMAN_STEERING_GRACE_SECONDS` | `30` | Time to recover before another intervention |
 | `FOREMAN_RESPONSIBILITIES_DIR` | unset | Optional Foreman-wide responsibility overrides |
 
-Policy thresholds and observation bounds retain typed `FactoryConfig` defaults for embedding
-compatibility. Central responsibility settings override only the responsibility that owns them.
+Observation bounds and runtime limits remain typed `FactoryConfig` fields. Semantic minimums live
+beside their checks in the central responsibility TOMLs. Other central settings can configure only
+the responsibility that owns them.
 
 ## Tests
 

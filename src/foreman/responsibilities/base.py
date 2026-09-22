@@ -14,6 +14,11 @@ class Check:
     responsibility_id: str
     check_id: str
     instructions: str
+    min_threshold: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.min_threshold is not None and not 0.0 <= self.min_threshold <= 1.0:
+            raise ValueError("check min_threshold must be between 0 and 1")
 
     @property
     def key(self) -> str:

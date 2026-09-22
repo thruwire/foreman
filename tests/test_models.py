@@ -48,7 +48,7 @@ def test_factory_state_rejects_unknown_active_responsibility(tmp_path) -> None:
             job="Do a thing",
             repository=str(tmp_path),
             candidate_responsibility_ids=["core.completion"],
-            active_responsibility_ids=["compliance.legal"],
+            active_responsibility_ids=["example.conditional"],
         )
 
 
@@ -58,8 +58,8 @@ def test_factory_state_rejects_invalid_routing_score(tmp_path) -> None:
             run_id="abc",
             job="Do a thing",
             repository=str(tmp_path),
-            candidate_responsibility_ids=["compliance.legal"],
-            routing_scores={"compliance.legal": 1.1},
+            candidate_responsibility_ids=["example.conditional"],
+            routing_scores={"example.conditional": 1.1},
         )
 
 

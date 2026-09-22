@@ -35,6 +35,21 @@ class ResponsibilityRouter(Protocol):
     async def close(self) -> None: ...
 
 
+class GlobalResponsibilityRouter:
+    """Activate global responsibilities without evaluating conditional routes."""
+
+    async def route(
+        self,
+        work: str,
+        candidates: ResponsibilityRegistry,
+    ) -> RoutingDecision:
+        del work
+        return RoutingDecision(active_responsibility_ids=list(candidates.global_ids()))
+
+    async def close(self) -> None:
+        return None
+
+
 def _routing_key(responsibility_id: str) -> str:
     return f"responsibility__{responsibility_id}"
 

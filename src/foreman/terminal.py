@@ -60,6 +60,10 @@ class TerminalRenderer:
                 ("Ready to finish", "ready_to_finish"),
             ]:
                 self.console.print(f"  {label:<23} {float(assessment[key]):>3.0%}")
+            if "documentation_sufficient" in assessment:
+                self.console.print(
+                    f"  {'Documentation':<23} {float(assessment['documentation_sufficient']):>3.0%}"
+                )
             self.console.print("Factory floor")
             for label, key in [
                 ("Meaningful progress", "meaningful_progress"),

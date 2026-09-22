@@ -16,7 +16,8 @@ class FactoryPolicy:
 
     def __post_init__(self) -> None:
         if self.responsibilities is None:
-            self.responsibilities = builtin_registry(self.config)
+            candidates = builtin_registry(self.config)
+            self.responsibilities = candidates.routed(candidates.global_ids())
 
     def _runtime_directive(
         self,

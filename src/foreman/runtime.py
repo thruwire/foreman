@@ -71,14 +71,7 @@ class FactoryRuntime:
             responsibilities if responsibilities is not None else builtin_registry(self.config)
         )
         self.router = router
-        initial_ids = (
-            self.candidate_responsibilities.global_ids()
-            if router is not None
-            else tuple(
-                responsibility.id
-                for responsibility in self.candidate_responsibilities.responsibilities
-            )
-        )
+        initial_ids = self.candidate_responsibilities.global_ids()
         self.responsibilities = self.candidate_responsibilities.routed(initial_ids)
         self.policy = FactoryPolicy(self.config, self.responsibilities)
         self.observer = ObservationBuilder(

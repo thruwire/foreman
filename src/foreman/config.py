@@ -36,16 +36,6 @@ class FactoryConfig(BaseModel):
     max_steers_per_worker: int = Field(default=1, ge=0)
     steering_grace_seconds: float = Field(default=30.0, ge=0.0)
 
-    human_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
-    off_track_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
-    agents_drift_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
-    stuck_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
-    verification_threshold: float = Field(default=0.65, ge=0.0, le=1.0)
-    finish_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
-    requirements_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
-    tests_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
-    implementation_for_verification_threshold: float = Field(default=0.75, ge=0.0, le=1.0)
-
     diff_limit: int = Field(default=20_000, ge=100)
     output_limit: int = Field(default=12_000, ge=100)
     field_limit: int = Field(default=50_000, ge=100)

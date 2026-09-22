@@ -19,6 +19,7 @@ src/foreman/responsibilities/definitions/
 ├── core.human-escalation.toml
 ├── core.verification.toml
 ├── core.worker-health.toml
+├── quality.documentation.toml
 └── repository.instructions.toml
 ```
 
@@ -35,29 +36,25 @@ name and may configure additional installed responsibility implementations. Omit
 their packaged values. The setting applies to every target repository supervised by that Foreman
 process.
 
-The committed legal-review example is
-[`examples/responsibilities/compliance.legal-review.toml`](../examples/responsibilities/compliance.legal-review.toml).
-It demonstrates central configuration for a future installed implementation; copying the file
-alone does not dynamically load Python code.
-
 ## File format
+
+The installed documentation responsibility is conditional and provides a real routing example:
 
 ```toml
 enabled = true
 always = false
 routing_instructions = """
-Activate legal review when incoming work changes customer-facing terms, regulated workflows,
-privacy disclosures, data-retention behavior, or other behavior requiring legal judgment.
+Does the incoming work explicitly require creating or updating README content, user guides,
+API documentation, release notes, or other documentation delivered with the repository?
 """
 routing_threshold = 0.70
 
-[checks.legal_review_required]
+[checks.documentation_sufficient]
 instructions = """
-Does the completed or proposed work require review by a legal specialist?
+When documentation is required by the original job, is the relevant documentation complete,
+accurate, and consistent with the implemented behavior?
 """
-
-[settings]
-review_project_id = "legal-review"
+min_threshold = 0.75
 ```
 
 - `enabled` includes or excludes the responsibility from routing.
@@ -66,6 +63,8 @@ review_project_id = "legal-review"
 - `routing_threshold` is that responsibility's activation threshold.
 - `[checks.<id>]` defines each recurring Jev check and its instructions. The implementation class
   declares the check IDs its directive logic requires, and startup fails when any are missing.
+- `min_threshold` sits beside the check it qualifies. Directive code reads it from the bound check
+  instead of introducing responsibility-specific threshold setting names.
 - `[settings]` is interpreted and validated by the responsibility implementation.
 
 Completion and verification are required global lifecycle responsibilities. Other built-ins may

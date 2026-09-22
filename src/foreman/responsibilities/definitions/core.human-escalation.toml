@@ -5,6 +5,4 @@ always = true
 instructions = """
 Does this situation require human judgment, credentials, clarification, or permission?
 """
-
-[settings]
-threshold = 0.80
+min_threshold = 0.80

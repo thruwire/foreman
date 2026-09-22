@@ -15,7 +15,7 @@ from foreman.responsibilities import (
     ResponsibilityRoute,
     configured_registry,
 )
-from foreman.routing import JevResponsibilityRouter, RoutingDecision
+from foreman.routing import GlobalResponsibilityRouter, JevResponsibilityRouter, RoutingDecision
 from foreman.runtime import FactoryRuntime
 from foreman.version import __version__
 
@@ -33,6 +33,7 @@ __all__ = [
     "ResponsibilityRegistry",
     "ResponsibilityRoute",
     "RoutingDecision",
+    "GlobalResponsibilityRouter",
     "JevResponsibilityRouter",
     "configured_registry",
 ]

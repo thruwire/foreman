@@ -19,7 +19,7 @@ from foreman.responsibilities import (
     ResponsibilityConfigError,
     configured_registry,
 )
-from foreman.routing import JevResponsibilityRouter
+from foreman.routing import GlobalResponsibilityRouter, JevResponsibilityRouter
 from foreman.runtime import FactoryRuntime
 from foreman.terminal import TerminalRenderer, duration_label, elapsed_label
 from foreman.workers import FakeWorker
@@ -140,7 +140,7 @@ def demo(
         worker_factory=simulated_worker,
         event_sink=TerminalRenderer(console),
         responsibilities=configured_registry(config),
-        router=JevResponsibilityRouter(timeout_seconds=config.jev_timeout_seconds),
+        router=GlobalResponsibilityRouter(),
     )
     status = _run_async(runtime)
     console.print(f"Demo run ID: [bold]{runtime.state.run_id}[/bold]")

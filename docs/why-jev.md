@@ -21,7 +21,8 @@ must be parsed.
 
 All active responsibilities' checks share the same compact observation and are submitted in one
 `system_one` call. Their IDs and Jev instructions come from the active responsibilities' TOML
-definitions; the built-in definitions currently contribute ten checks.
+definitions. Ten checks are global; the conditional documentation responsibility contributes an
+eleventh when incoming work explicitly requires documentation.
 TypeSafe states that questions in a request are evaluated independently and in parallel. This is a
 good fit for factory supervision: completeness should not have to be generated before stuckness,
 and adding a safety dimension should not extend a token-by-token answer.
