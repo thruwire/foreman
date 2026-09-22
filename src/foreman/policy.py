@@ -103,6 +103,11 @@ class FactoryPolicy:
             off_track = assessment.work_off_track >= self.config.off_track_threshold
             agents_drift = assessment.agents_md_drift >= self.config.agents_drift_threshold
             stuck = assessment.worker_stuck >= self.config.stuck_threshold
+            silence_needed = self.config.stuck_requires_silence_seconds
+            if stuck and silence_needed > 0 and _active is not None:
+                seen = _active.last_output_at or _active.started_at
+                silent_for = (datetime.now(UTC) - seen).total_seconds() if seen else silence_needed
+                stuck = silent_for >= silence_needed
             if off_track or agents_drift or stuck:
                 worker = next(item for item in state.workers if item.worker_id == active_id)
                 warning_scores = (

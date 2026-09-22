@@ -265,3 +265,30 @@ def test_needs_human_deferred_while_worker_output_is_recent(state, assessment) -
     assert FactoryPolicy(config).decide(state, value).action is InterventionType.CONTINUE
     state.workers[0].last_output_at = datetime.now(UTC) - timedelta(seconds=400)
     assert FactoryPolicy(config).decide(state, value).action is InterventionType.ESCALATE
+
+
+def test_stuck_ignored_while_worker_output_is_recent(state, assessment) -> None:
+    from datetime import timedelta
+
+    active(state, supports_steering=False)
+    config = FactoryConfig(stuck_requires_silence_seconds=240)
+    value = with_scores(assessment, worker_stuck=0.95)
+    state.workers[0].last_output_at = datetime.now(UTC) - timedelta(seconds=160)
+    assert FactoryPolicy(config).decide(state, value).action is InterventionType.CONTINUE
+    state.workers[0].last_output_at = datetime.now(UTC) - timedelta(seconds=300)
+    assert FactoryPolicy(config).decide(state, value).action is InterventionType.STOP_WORKER
+
+
+def test_stuck_silence_rule_is_off_by_default(state, assessment) -> None:
+    active(state, supports_steering=False)
+    state.workers[0].last_output_at = datetime.now(UTC)
+    value = with_scores(assessment, worker_stuck=0.95)
+    assert FactoryPolicy(FactoryConfig()).decide(state, value).action is InterventionType.STOP_WORKER
+
+
+def test_off_track_still_stops_a_chatty_worker(state, assessment) -> None:
+    active(state, supports_steering=False)
+    state.workers[0].last_output_at = datetime.now(UTC)
+    config = FactoryConfig(stuck_requires_silence_seconds=240)
+    value = with_scores(assessment, work_off_track=0.95)
+    assert FactoryPolicy(config).decide(state, value).action is InterventionType.STOP_WORKER

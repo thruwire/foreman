@@ -56,6 +56,10 @@ class FactoryConfig(BaseModel):
     # seconds (objective liveness; LLM "thinking" gaps read as low progress
     # to Jev). 0 disables the liveness criterion.
     human_deferral_liveness_seconds: float = Field(default=0.0, ge=0.0)
+    # Only act on a "stuck" assessment once the active worker has produced no
+    # output for this many seconds (an LLM generating a large file streams
+    # nothing for minutes). 0 = trust the assessment alone (upstream).
+    stuck_requires_silence_seconds: float = Field(default=0.0, ge=0.0)
     off_track_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     agents_drift_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     stuck_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
@@ -115,6 +119,7 @@ class FactoryConfig(BaseModel):
                 "progress_threshold_for_deferral",
                 float,
             ),
+            "FOREMAN_STUCK_REQUIRES_SILENCE_SECONDS": ("stuck_requires_silence_seconds", float),
             "FOREMAN_HUMAN_DEFERRAL_LIVENESS_SECONDS": (
                 "human_deferral_liveness_seconds",
                 float,
