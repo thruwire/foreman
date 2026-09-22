@@ -6,13 +6,13 @@ import pytest
 
 from foreman.config import FactoryConfig
 from foreman.foreman import FakeForemanModel
-from foreman.models import EventType, FactoryAssessment, FactoryStatus, WorkerType
+from foreman.models import EventType, FactoryAssessment, FactoryStatus, ForemanResult, WorkerType
 from foreman.persistence import RunStore
 from foreman.runtime import FactoryRuntime
 from foreman.workers import FakeWorker
 
 
-def score(**updates: float) -> FactoryAssessment:
+def score(**updates: float) -> ForemanResult:
     base = {
         "implementation_complete": 0.3,
         "tests_sufficient": 0.1,
@@ -26,7 +26,7 @@ def score(**updates: float) -> FactoryAssessment:
         "needs_human": 0.0,
     }
     base.update(updates)
-    return FactoryAssessment(**base)
+    return FactoryAssessment(**base).to_result()
 
 
 def config(**updates) -> FactoryConfig:

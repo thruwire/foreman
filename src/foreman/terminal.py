@@ -38,7 +38,15 @@ class TerminalRenderer:
         elif event.event_type is EventType.FOREMAN_OBSERVED:
             self.console.print("Watching factory floor...")
         elif event.event_type is EventType.FOREMAN_ASSESSED:
-            assessment = payload["assessment"]
+            result = payload.get("result")
+            if isinstance(result, dict):
+                grouped = result["checks"]
+                assessment = {
+                    key: value for checks in grouped.values() for key, value in checks.items()
+                }
+            else:
+                # Historical event logs used a flat assessment payload.
+                assessment = payload["assessment"]
             self.console.print("[bold]FOREMAN ASSESSMENT[/bold]")
             self.console.print("Job")
             for label, key in [

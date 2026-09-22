@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Protocol
 
-from foreman.models import FactoryAssessment
+from foreman.models import ForemanResult
 from foreman.observation import FactoryObservation
+from foreman.responsibilities import Check
 
 
 class ForemanModelError(RuntimeError):
@@ -11,7 +13,10 @@ class ForemanModelError(RuntimeError):
 
 
 class ForemanModel(Protocol):
-    async def assess(self, observation: FactoryObservation) -> FactoryAssessment: ...
+    async def assess(
+        self,
+        observation: FactoryObservation,
+        checks: Sequence[Check],
+    ) -> ForemanResult: ...
 
     async def close(self) -> None: ...
-

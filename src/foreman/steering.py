@@ -1,18 +1,25 @@
 from __future__ import annotations
 
-from foreman.models import FactoryAssessment
+from foreman.models import ForemanResult
+from foreman.responsibilities import REPOSITORY_INSTRUCTIONS, VERIFICATION, WORKER_HEALTH
 
 
-def build_steering_message(assessment: FactoryAssessment) -> str:
+def build_steering_message(result: ForemanResult) -> str:
     """Translate semantic warning signals into concise, actionable worker guidance."""
 
-    if assessment.agents_md_drift >= max(assessment.work_off_track, assessment.worker_stuck):
+    agents_md_drift = result.probability(REPOSITORY_INSTRUCTIONS, "agents_md_drift")
+    work_off_track = result.probability(WORKER_HEALTH, "work_off_track")
+    worker_stuck = result.probability(WORKER_HEALTH, "worker_stuck")
+    meaningful_progress = result.probability(WORKER_HEALTH, "meaningful_progress")
+    tests_sufficient = result.probability(VERIFICATION, "tests_sufficient")
+
+    if agents_md_drift >= max(work_off_track, worker_stuck):
         direction = (
             "Your current work appears to be drifting from the repository's AGENTS.md "
             "instructions. Re-read the applicable repository instructions, compare them with "
             "your recent actions and current changes, and adjust your approach before continuing."
         )
-    elif assessment.work_off_track >= assessment.worker_stuck:
+    elif work_off_track >= worker_stuck:
         direction = (
             "Re-read the original job and compare it with your current work. "
             "Return to the smallest change that satisfies the request, avoid unrelated work, "
@@ -27,11 +34,11 @@ def build_steering_message(assessment: FactoryAssessment) -> str:
 
     return (
         "Foreman supervisory update based on a Jev assessment:\n"
-        f"- worker stuck: {assessment.worker_stuck:.0%}\n"
-        f"- meaningful progress: {assessment.meaningful_progress:.0%}\n"
-        f"- work off track: {assessment.work_off_track:.0%}\n"
-        f"- AGENTS.md drift: {assessment.agents_md_drift:.0%}\n"
-        f"- tests sufficient: {assessment.tests_sufficient:.0%}\n\n"
+        f"- worker stuck: {worker_stuck:.0%}\n"
+        f"- meaningful progress: {meaningful_progress:.0%}\n"
+        f"- work off track: {work_off_track:.0%}\n"
+        f"- AGENTS.md drift: {agents_md_drift:.0%}\n"
+        f"- tests sufficient: {tests_sufficient:.0%}\n\n"
         f"Direction: {direction}\n\n"
         "Continue working toward the original job and report what changed in your approach."
     )

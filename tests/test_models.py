@@ -10,6 +10,7 @@ from foreman.models import (
     FactoryAssessment,
     FactoryEvent,
     FactoryState,
+    ForemanResult,
     Intervention,
     InterventionType,
     WorkerRecord,
@@ -48,17 +49,33 @@ def test_factory_state_rejects_empty_required_fields(tmp_path, field) -> None:
         FactoryState(**values)
 
 
-def test_assessment_validation_and_round_trip(assessment) -> None:
-    restored = FactoryAssessment.model_validate_json(assessment.model_dump_json())
+def test_result_validation_and_round_trip(assessment) -> None:
+    restored = ForemanResult.model_validate_json(assessment.model_dump_json())
     assert restored == assessment
 
 
 @pytest.mark.parametrize("value", [-0.1, 1.1, float("inf"), float("nan")])
-def test_assessment_rejects_invalid_score(assessment, value) -> None:
-    values = assessment.model_dump(exclude={"assessed_at"})
-    values["worker_stuck"] = value
-    with pytest.raises(ValidationError):
-        FactoryAssessment(**values)
+def test_result_rejects_invalid_probability(assessment, value) -> None:
+    checks = assessment.model_copy(deep=True)
+    checks.checks["core.worker-health"]["worker_stuck"] = value
+    with pytest.raises((TypeError, ValueError)):
+        checks.probability("core.worker-health", "worker_stuck")
+
+
+def test_legacy_assessment_converts_to_grouped_result() -> None:
+    legacy = FactoryAssessment(
+        implementation_complete=0.8,
+        tests_sufficient=0.7,
+        requirements_satisfied=0.8,
+        needs_verification=0.4,
+        meaningful_progress=0.9,
+        worker_stuck=0.1,
+        work_off_track=0.1,
+        agents_md_drift=0.0,
+        ready_to_finish=0.7,
+        needs_human=0.0,
+    )
+    assert legacy.to_result().probability("core.completion", "implementation_complete") == 0.8
 
 
 def test_event_serialization() -> None:
@@ -96,7 +113,7 @@ def test_observation_validation() -> None:
         test_results=[],
         verification_results=[],
         recent_events=[],
-        previous_assessment=None,
+        previous_result=None,
         previous_intervention=None,
         attempts=0,
         failures=[],
@@ -123,7 +140,7 @@ def test_observation_rejects_negative_elapsed() -> None:
             test_results=[],
             verification_results=[],
             recent_events=[],
-            previous_assessment=None,
+            previous_result=None,
             previous_intervention=None,
             attempts=0,
             failures=[],
@@ -138,4 +155,3 @@ def test_datetime_serializes_as_iso() -> None:
         event_type=EventType.FACTORY_STARTED,
     )
     assert "2026-01-01T00:00:00Z" in event.model_dump_json()
-

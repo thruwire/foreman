@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from foreman.config import FactoryConfig
-from foreman.models import FactoryAssessment, FactoryState, Intervention, WorkerRecord
+from foreman.models import FactoryState, ForemanResult, Intervention, WorkerRecord
 from foreman.persistence import RunStore
 
 
@@ -34,7 +34,7 @@ class FactoryObservation(BaseModel):
     test_results: list[dict[str, Any]]
     verification_results: list[dict[str, Any]]
     recent_events: list[dict[str, Any]]
-    previous_assessment: FactoryAssessment | None
+    previous_result: ForemanResult | None
     previous_intervention: Intervention | None
     attempts: int = Field(ge=0)
     failures: list[str]
@@ -98,9 +98,7 @@ def _bounded_worker(worker: WorkerRecord, output_limit: int) -> dict[str, Any]:
         "codex_turn_id": worker.codex_turn_id,
         "supports_steering": worker.supports_steering,
         "steer_count": worker.steer_count,
-        "last_steered_at": (
-            worker.last_steered_at.isoformat() if worker.last_steered_at else None
-        ),
+        "last_steered_at": (worker.last_steered_at.isoformat() if worker.last_steered_at else None),
         "steering_history": worker.steering_history[-3:],
     }
 
@@ -154,9 +152,7 @@ class ObservationBuilder:
             run_id=state.run_id,
             factory_status=state.status.value,
             iteration=state.iteration,
-            active_workers=[
-                _bounded_worker(worker, self.config.output_limit) for worker in active
-            ],
+            active_workers=[_bounded_worker(worker, self.config.output_limit) for worker in active],
             worker_history=[
                 _bounded_worker(worker, self.config.output_limit) for worker in history
             ],
@@ -183,7 +179,7 @@ class ObservationBuilder:
             recent_events=self.store.recent_event_dicts(
                 state.run_id, self.config.event_history_limit
             ),
-            previous_assessment=state.latest_assessment,
+            previous_result=state.latest_result,
             previous_intervention=state.latest_intervention,
             attempts=len(state.workers),
             failures=state.errors[-self.config.worker_history_limit :],

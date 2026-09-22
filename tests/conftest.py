@@ -4,11 +4,11 @@ from datetime import UTC, datetime
 
 import pytest
 
-from foreman.models import FactoryAssessment, FactoryState
+from foreman.models import FactoryAssessment, FactoryState, ForemanResult
 
 
 @pytest.fixture
-def assessment() -> FactoryAssessment:
+def assessment() -> ForemanResult:
     return FactoryAssessment(
         implementation_complete=0.8,
         tests_sufficient=0.7,
@@ -20,7 +20,7 @@ def assessment() -> FactoryAssessment:
         agents_md_drift=0.0,
         ready_to_finish=0.7,
         needs_human=0.0,
-    )
+    ).to_result()
 
 
 @pytest.fixture

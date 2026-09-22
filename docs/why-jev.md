@@ -13,13 +13,14 @@ come out. It exposes three primitives:
 - [Choice](https://docs.typesafe.ai/primitives/choice): a selected category plus probabilities.
 - [Score](https://docs.typesafe.ai/primitives/score): an expected position on an ordered rubric.
 
-Foreman's ten dimensions are all phrased so that a high value means “yes,” making Noul the direct
+Foreman's built-in checks are all phrased so that a high value means “yes,” making Noul the direct
 representation. For example, `worker_stuck = 0.88` is a probability, not a generated label that
 must be parsed.
 
 ## Parallel questions
 
-All ten questions share the same compact observation and are submitted in one `system_one` call.
+All active responsibilities' checks share the same compact observation and are submitted in one
+`system_one` call. The built-in registry currently contributes ten checks.
 TypeSafe states that questions in a request are evaluated independently and in parallel. This is a
 good fit for factory supervision: completeness should not have to be generated before stuckness,
 and adding a safety dimension should not extend a token-by-token answer.

@@ -21,15 +21,22 @@ verification is needed, or human input is required.
                                 Jev
                                   │
                                   ▼
-                    implementation_complete  .91
-                    tests_sufficient         .34
-                    requirements_satisfied   .79
-                    worker_stuck             .02
-                    needs_verification       .82
-                    work_off_track           .06
-                    agents_md_drift          .01
-                    meaningful_progress      .94
-                    ready_to_finish          .21
+                    responsibilities
+                      completion
+                        implementation_complete  .91
+                        requirements_satisfied   .79
+                        ready_to_finish          .21
+                      verification
+                        tests_sufficient         .34
+                        needs_verification       .82
+                      worker health
+                        worker_stuck             .02
+                        work_off_track           .06
+                        meaningful_progress      .94
+                      repository instructions
+                        agents_md_drift          .01
+                      human escalation
+                        needs_human              .01
                                   │
                                   ▼
                     continue / steer / stop / retry
@@ -136,7 +143,7 @@ Each observation is compact and bounded. It contains:
 - `git status`, a bounded diff, and changed file names;
 - bounded repository-root `AGENTS.override.md` or `AGENTS.md` instructions when present;
 - verification results and recent persisted events;
-- the prior assessment and intervention;
+- the prior Foreman result and intervention;
 - attempt/failure counts and elapsed factory time.
 
 Foreman never dumps the repository into Jev. Repository instructions are read for each observation
@@ -144,33 +151,45 @@ and included only in the transient Jev request; their contents are not persisted
 Defaults are a 20,000-character diff, 12,000 characters per captured output tail, 30 recent events,
 and 10 workers of history. The limits live in `FactoryConfig` and can be changed for experiments.
 
-## What Foreman assesses
+## Responsibilities and checks
 
-The first five dimensions describe the **overall job**:
+Foreman's semantic supervision is split into pluggable responsibilities. A responsibility owns one
+or more Jev checks and deterministic logic that may propose directives. Checks have results;
+responsibilities do not have aggregate scores. All active responsibilities can match at once, and
+their checks are still sent to Jev in one parallel request.
+
+The built-in completion responsibility owns:
 
 - `implementation_complete`: probability that required implementation work is complete.
-- `tests_sufficient`: probability that relevant coverage and passing verification are sufficient.
 - `requirements_satisfied`: probability that the repository satisfies the free-form request as a
   whole, which is broader than code completion.
-- `needs_verification`: probability that an independent verification pass is warranted.
 - `ready_to_finish`: probability that the factory should consider the job complete.
 
-The remaining five describe the **factory floor now**:
+Verification owns `tests_sufficient` and `needs_verification`. Worker health owns:
 
 - `meaningful_progress`: probability that the current or latest worker is advancing the job.
 - `worker_stuck`: probability that the worker is looping, repeatedly failing, or unable to advance.
 - `work_off_track`: probability that work is drifting from the original job or is unrelated.
+
+Repository instructions owns:
+
 - `agents_md_drift`: probability that the worker's behavior or repository work is materially
   inconsistent with the target repository's root `AGENTS.override.md` or `AGENTS.md` instructions.
+
+Human escalation owns:
+
 - `needs_human`: probability that judgment, credentials, clarification, or permission is needed.
 
 Every dimension is one Jev `Noul` question, whose result is the probability of “yes.” All ten are
-sent in one request. Values are validated, normalized to `[0, 1]`, stored in `state.json`, and
-recorded in the event timeline.
+sent in one request. A `ForemanResult` groups check outputs by responsibility, records every
+proposed directive, and identifies the one selected directive. It is stored in `state.json` and the
+event timeline. The runtime accepts a `ResponsibilityRegistry`, so another responsibility can add
+checks and directives without changing the Jev adapter or runtime loop.
 
 ## What Foreman can do
 
-Jev only assesses. A deterministic Python policy decides which action is permitted:
+Jev only evaluates checks. Responsibilities propose directives, and a deterministic Python arbiter
+selects the one action that is permitted:
 
 - `CONTINUE`: let an active worker keep working.
 - `START_WORKER`: begin a coding pass because work remains.

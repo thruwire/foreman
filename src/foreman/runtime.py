@@ -25,6 +25,7 @@ from foreman.models import (
 from foreman.observation import ObservationBuilder
 from foreman.persistence import RunStore
 from foreman.policy import FactoryPolicy
+from foreman.responsibilities import ResponsibilityRegistry, builtin_registry
 from foreman.steering import build_steering_message
 from foreman.workers import CodexAppServerWorker, CodexWorker, OpenCodeWorker, Worker
 from foreman.workers.codex import mission_for
@@ -54,6 +55,7 @@ class FactoryRuntime:
         store: RunStore | None = None,
         run_id: str | None = None,
         event_sink: EventSink | None = None,
+        responsibilities: ResponsibilityRegistry | None = None,
     ) -> None:
         self.repository = Path(repository).resolve()
         if not self.repository.is_dir():
@@ -63,7 +65,10 @@ class FactoryRuntime:
         self.config = config or FactoryConfig.from_environment()
         self.model = model
         self.store = store or RunStore(self.repository)
-        self.policy = FactoryPolicy(self.config)
+        self.responsibilities = (
+            responsibilities if responsibilities is not None else builtin_registry(self.config)
+        )
+        self.policy = FactoryPolicy(self.config, self.responsibilities)
         self.observer = ObservationBuilder(self.store, self.config)
         self.event_sink = event_sink
         self.queue: asyncio.Queue[FactoryEvent] = asyncio.Queue()
@@ -247,7 +252,7 @@ class FactoryRuntime:
             notify_foreman=False,
         )
         try:
-            assessment = await self.model.assess(observation)
+            result = await self.model.assess(observation, self.responsibilities.checks())
         except ForemanModelError as error:
             self.state.errors.append(str(error))
             self.state.consecutive_assessment_failures += 1
@@ -279,14 +284,16 @@ class FactoryRuntime:
             return intervention
 
         self.state.consecutive_assessment_failures = 0
-        self.state.latest_assessment = assessment
-        self.state.assessment_history.append(assessment)
+        evaluated = self.policy.evaluate(self.state, result)
+        self.state.latest_result = evaluated
+        self.state.result_history.append(evaluated)
         await self.emit(
             EventType.FOREMAN_ASSESSED,
-            {"iteration": self.state.iteration, "assessment": assessment.model_dump(mode="json")},
+            {"iteration": self.state.iteration, "result": evaluated.model_dump(mode="json")},
             notify_foreman=False,
         )
-        intervention = self.policy.decide(self.state, assessment)
+        intervention = evaluated.selected_directive
+        assert intervention is not None
         self.state.latest_intervention = intervention
         self.state.intervention_history.append(intervention)
         self.state.touch()
@@ -315,10 +322,10 @@ class FactoryRuntime:
             if worker_id is None or worker_id not in self._workers:
                 return
             record = self._worker(worker_id)
-            assessment = self.state.latest_assessment
-            if assessment is None:
+            result = self.state.latest_result
+            if result is None:
                 return
-            message = build_steering_message(assessment)
+            message = build_steering_message(result)
             record.steer_count += 1
             record.steering_history.append(message)
             steered = await self._workers[worker_id].steer(message)

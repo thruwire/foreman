@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Sequence
 
-from foreman.models import FactoryAssessment
+from foreman.models import FactoryAssessment, ForemanResult
 from foreman.observation import FactoryObservation
+from foreman.responsibilities import Check
 
 DEMO_ASSESSMENTS = [
     FactoryAssessment(
@@ -56,6 +57,7 @@ DEMO_ASSESSMENTS = [
         needs_human=0.01,
     ),
 ]
+DEMO_RESULTS = [assessment.to_result() for assessment in DEMO_ASSESSMENTS]
 
 
 class FakeForemanModel:
@@ -63,30 +65,36 @@ class FakeForemanModel:
 
     def __init__(
         self,
-        assessments: Sequence[FactoryAssessment] | None = None,
+        assessments: Sequence[ForemanResult | FactoryAssessment] | None = None,
         *,
         delay_seconds: float = 0.0,
         repeat_last: bool = True,
     ) -> None:
-        self.assessments = list(assessments or DEMO_ASSESSMENTS)
-        if not self.assessments:
-            raise ValueError("at least one fake assessment is required")
+        supplied = assessments or DEMO_RESULTS
+        self.results = [
+            item.to_result() if isinstance(item, FactoryAssessment) else item for item in supplied
+        ]
+        if not self.results:
+            raise ValueError("at least one fake result is required")
         self.delay_seconds = delay_seconds
         self.repeat_last = repeat_last
         self.calls: list[FactoryObservation] = []
         self._index = 0
 
-    async def assess(self, observation: FactoryObservation) -> FactoryAssessment:
+    async def assess(
+        self, observation: FactoryObservation, checks: Sequence[Check]
+    ) -> ForemanResult:
+        del checks
         self.calls.append(observation)
         if self.delay_seconds:
             await asyncio.sleep(self.delay_seconds)
-        if self._index >= len(self.assessments):
+        if self._index >= len(self.results):
             if not self.repeat_last:
-                raise RuntimeError("fake assessment sequence exhausted")
-            return self.assessments[-1].model_copy(deep=True)
-        assessment = self.assessments[self._index].model_copy(deep=True)
+                raise RuntimeError("fake result sequence exhausted")
+            return self.results[-1].model_copy(deep=True)
+        result = self.results[self._index].model_copy(deep=True)
         self._index += 1
-        return assessment
+        return result
 
     async def close(self) -> None:
         return None

@@ -5,8 +5,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from foreman.models.assessment import FactoryAssessment
 from foreman.models.events import Intervention
+from foreman.models.result import ForemanResult
 from foreman.models.worker import WorkerRecord
 
 
@@ -31,6 +31,7 @@ class VerificationResult(BaseModel):
 class FactoryState(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    schema_version: int = Field(default=2, ge=2)
     run_id: str = Field(min_length=1)
     job: str = Field(min_length=1, max_length=100_000)
     repository: str = Field(min_length=1)
@@ -44,8 +45,8 @@ class FactoryState(BaseModel):
     active_workers: list[str] = Field(default_factory=list)
     completed_workers: list[str] = Field(default_factory=list)
     failed_workers: list[str] = Field(default_factory=list)
-    latest_assessment: FactoryAssessment | None = None
-    assessment_history: list[FactoryAssessment] = Field(default_factory=list)
+    latest_result: ForemanResult | None = None
+    result_history: list[ForemanResult] = Field(default_factory=list)
     latest_intervention: Intervention | None = None
     intervention_history: list[Intervention] = Field(default_factory=list)
     verification_results: list[VerificationResult] = Field(default_factory=list)
