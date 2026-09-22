@@ -1,0 +1,7 @@
+enabled = true
+always = true
+
+[settings]
+finish_threshold = 0.75
+requirements_threshold = 0.75
+tests_threshold = 0.75

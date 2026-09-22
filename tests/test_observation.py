@@ -47,3 +47,21 @@ async def test_observation_rereads_agents_override_with_precedence(tmp_path) -> 
     assert first.agents_md_instructions == "base instructions"
     assert second.agents_md_path == "AGENTS.override.md"
     assert second.agents_md_instructions == "override instructions"
+
+
+@pytest.mark.asyncio
+async def test_observation_uses_responsibility_owned_instruction_paths(tmp_path) -> None:
+    (tmp_path / "PROJECT.md").write_text("project-specific instructions", encoding="utf-8")
+    state = FactoryState(run_id="run-1", job="job", repository=str(tmp_path))
+    store = RunStore(tmp_path)
+    store.initialize(state)
+    builder = ObservationBuilder(
+        store,
+        FactoryConfig(),
+        repository_instruction_files=("PROJECT.override.md", "PROJECT.md"),
+    )
+
+    observation = await builder.build(state)
+
+    assert observation.agents_md_path == "PROJECT.md"
+    assert observation.agents_md_instructions == "project-specific instructions"

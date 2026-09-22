@@ -75,7 +75,7 @@ class RunStore:
             # V0.1 briefly persisted this derived property; tolerate those inspectable runs.
             for worker in payload.get("workers", []):
                 worker.pop("duration_seconds", None)
-            self._migrate_legacy_assessments(payload)
+            self._migrate_state(payload)
             return FactoryState.model_validate(payload)
         except FileNotFoundError as error:
             raise PersistenceError(f"run {run_id!r} was not found") from error
@@ -83,8 +83,8 @@ class RunStore:
             raise PersistenceError(f"state for run {run_id!r} is malformed: {error}") from error
 
     @staticmethod
-    def _migrate_legacy_assessments(payload: dict[str, object]) -> None:
-        """Translate pre-responsibility state without rewriting the saved run."""
+    def _migrate_state(payload: dict[str, object]) -> None:
+        """Translate older schemas without rewriting the saved run."""
 
         latest = payload.pop("latest_assessment", None)
         history = payload.pop("assessment_history", None)
@@ -97,7 +97,10 @@ class RunStore:
                 FactoryAssessment.model_validate(item).to_result().model_dump(mode="json")
                 for item in history
             ]
-        payload["schema_version"] = 2
+        payload.setdefault("candidate_responsibility_ids", [])
+        payload.setdefault("active_responsibility_ids", [])
+        payload.setdefault("routing_scores", {})
+        payload["schema_version"] = 3
 
     def append_event(self, event: FactoryEvent) -> None:
         path = self.run_dir(event.run_id) / "events.jsonl"

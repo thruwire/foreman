@@ -1,0 +1,9 @@
+enabled = true
+always = true
+
+[settings]
+off_track_threshold = 0.80
+stuck_threshold = 0.80
+steering_enabled = true
+max_steers_per_worker = 1
+steering_grace_seconds = 30

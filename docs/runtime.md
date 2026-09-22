@@ -44,6 +44,13 @@ offline tests; real runs default to Jev and Codex.
 Foreman-generated events do not feed back into the queue, preventing the observer from triggering
 itself recursively.
 
+Before the first worker starts, real CLI runs load Foreman's central per-responsibility
+configuration and route the incoming job. This configuration is independent of the target
+repository. Global responsibilities are included directly; all conditional responsibilities are
+evaluated together in one Jev call, and every threshold match is activated. The routing decision
+is persisted as `FOREMAN_ROUTED`. See
+[Responsibility configuration and routing](routing.md).
+
 ## Shutdown
 
 Worker timeout, overall timeout, escalation, and cancellation first request `turn/interrupt`.

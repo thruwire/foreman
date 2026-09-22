@@ -1,0 +1,6 @@
+enabled = true
+always = true
+
+[settings]
+drift_threshold = 0.80
+instruction_files = ["AGENTS.override.md", "AGENTS.md"]

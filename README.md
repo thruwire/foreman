@@ -54,6 +54,7 @@ conventional coding-agent harness.
 - [Why Jev fits the experiment](docs/why-jev.md)
 - [What Foreman is proving](docs/what-foreman-proves.md)
 - [Runtime and event flow](docs/runtime.md)
+- [Responsibility configuration and routing](docs/routing.md)
 - [Live steering](docs/steering.md)
 - [Worker backends](docs/workers.md)
 
@@ -186,6 +187,15 @@ proposed directive, and identifies the one selected directive. It is stored in `
 event timeline. The runtime accepts a `ResponsibilityRegistry`, so another responsibility can add
 checks and directives without changing the Jev adapter or runtime loop.
 
+For real runs, Foreman ships one TOML file per built-in responsibility under
+`src/foreman/responsibilities/definitions/`. Each file owns its global-or-routed behavior, Jev
+routing instructions, threshold, and responsibility-specific settings. An optional central
+directory selected with `--responsibilities-dir` or `FOREMAN_RESPONSIBILITIES_DIR` can override
+those files for the whole Foreman installation. Target repositories never supply responsibility
+configuration. Foreman evaluates all non-global candidates in one Jev request and activates every
+match; there is no separate routes file. See
+[Responsibility configuration and routing](docs/routing.md).
+
 ## What Foreman can do
 
 Jev only evaluates checks. Responsibilities propose directives, and a deterministic Python arbiter
@@ -317,6 +327,9 @@ foreman runs --repo ./my-project
 foreman inspect <run-id> --repo ./my-project
 ```
 
+The target repository's entire `.foreman/` directory is locally ignored because it contains run
+state, not factory configuration.
+
 ## Runtime configuration
 
 The most useful environment overrides are:
@@ -337,9 +350,10 @@ The most useful environment overrides are:
 | `FOREMAN_STEERING_ENABLED` | `true` | Allow Jev-informed active-turn guidance |
 | `FOREMAN_MAX_STEERS_PER_WORKER` | `1` | Steering attempts before stop/retry |
 | `FOREMAN_STEERING_GRACE_SECONDS` | `30` | Time to recover before another intervention |
+| `FOREMAN_RESPONSIBILITIES_DIR` | unset | Optional Foreman-wide responsibility overrides |
 
-Policy thresholds and observation bounds are typed `FactoryConfig` fields and can be configured by
-applications embedding Foreman.
+Policy thresholds and observation bounds retain typed `FactoryConfig` defaults for embedding
+compatibility. Central responsibility settings override only the responsibility that owns them.
 
 ## Tests
 

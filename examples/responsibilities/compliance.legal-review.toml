@@ -1,0 +1,12 @@
+# This is a Foreman-wide responsibility configuration, not target-repository config.
+# It requires a matching installed `compliance.legal-review` implementation.
+enabled = true
+always = false
+routing_instructions = """
+Activate legal review when incoming work changes customer-facing terms, regulated workflows,
+privacy disclosures, data-retention behavior, or other behavior requiring legal judgment.
+"""
+routing_threshold = 0.70
+
+[settings]
+review_project_id = "legal-review"

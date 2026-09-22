@@ -1,0 +1,5 @@
+enabled = true
+always = true
+
+[settings]
+threshold = 0.80

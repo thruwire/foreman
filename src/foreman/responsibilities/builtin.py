@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import PurePosixPath
+from typing import Any
 
 from foreman.config import FactoryConfig
 from foreman.models import Directive, FactoryState, ForemanResult, InterventionType
-from foreman.responsibilities.base import Check, ResponsibilityRegistry
+from foreman.responsibilities.base import Check, ResponsibilityRegistry, ResponsibilityRoute
 
 COMPLETION = "core.completion"
 VERIFICATION = "core.verification"
@@ -83,6 +86,9 @@ class HumanEscalationResponsibility:
     config: FactoryConfig
     id: str = HUMAN_ESCALATION
 
+    def route(self) -> ResponsibilityRoute:
+        return ResponsibilityRoute(always=True)
+
     def checks(self) -> tuple[Check, ...]:
         return (
             Check(
@@ -113,6 +119,18 @@ class HumanEscalationResponsibility:
 class RepositoryInstructionsResponsibility:
     config: FactoryConfig
     id: str = REPOSITORY_INSTRUCTIONS
+    instruction_files: tuple[str, ...] = ("AGENTS.override.md", "AGENTS.md")
+
+    def __post_init__(self) -> None:
+        if not self.instruction_files:
+            raise ValueError("repository instructions requires at least one instruction file")
+        for filename in self.instruction_files:
+            path = PurePosixPath(filename)
+            if path.is_absolute() or ".." in path.parts or not filename.strip():
+                raise ValueError(f"invalid repository instruction path: {filename!r}")
+
+    def route(self) -> ResponsibilityRoute:
+        return ResponsibilityRoute(always=True)
 
     def checks(self) -> tuple[Check, ...]:
         return (
@@ -144,6 +162,9 @@ class RepositoryInstructionsResponsibility:
 class WorkerHealthResponsibility:
     config: FactoryConfig
     id: str = WORKER_HEALTH
+
+    def route(self) -> ResponsibilityRoute:
+        return ResponsibilityRoute(always=True)
 
     def checks(self) -> tuple[Check, ...]:
         return (
@@ -190,6 +211,9 @@ class WorkerHealthResponsibility:
 class CompletionResponsibility:
     config: FactoryConfig
     id: str = COMPLETION
+
+    def route(self) -> ResponsibilityRoute:
+        return ResponsibilityRoute(always=True)
 
     def checks(self) -> tuple[Check, ...]:
         return (
@@ -264,6 +288,9 @@ class VerificationResponsibility:
     config: FactoryConfig
     id: str = VERIFICATION
 
+    def route(self) -> ResponsibilityRoute:
+        return ResponsibilityRoute(always=True)
+
     def checks(self) -> tuple[Check, ...]:
         return (
             Check(
@@ -300,15 +327,81 @@ class VerificationResponsibility:
         ]
 
 
-def builtin_registry(config: FactoryConfig) -> ResponsibilityRegistry:
+_SETTING_FIELDS = {
+    HUMAN_ESCALATION: {"threshold": "human_threshold"},
+    REPOSITORY_INSTRUCTIONS: {"drift_threshold": "agents_drift_threshold"},
+    WORKER_HEALTH: {
+        "off_track_threshold": "off_track_threshold",
+        "stuck_threshold": "stuck_threshold",
+        "steering_enabled": "steering_enabled",
+        "max_steers_per_worker": "max_steers_per_worker",
+        "steering_grace_seconds": "steering_grace_seconds",
+    },
+    COMPLETION: {
+        "finish_threshold": "finish_threshold",
+        "requirements_threshold": "requirements_threshold",
+        "tests_threshold": "tests_threshold",
+    },
+    VERIFICATION: {
+        "threshold": "verification_threshold",
+        "implementation_threshold": "implementation_for_verification_threshold",
+    },
+}
+
+
+def _responsibility_config(
+    config: FactoryConfig,
+    responsibility_id: str,
+    settings: Mapping[str, Any],
+) -> FactoryConfig:
+    allowed = _SETTING_FIELDS[responsibility_id]
+    unknown = set(settings) - set(allowed)
+    if responsibility_id == REPOSITORY_INSTRUCTIONS:
+        unknown.discard("instruction_files")
+    if unknown:
+        raise ValueError(f"unknown settings for {responsibility_id}: {', '.join(sorted(unknown))}")
+    updates = {allowed[name]: value for name, value in settings.items() if name in allowed}
+    return FactoryConfig.model_validate({**config.model_dump(), **updates})
+
+
+def builtin_registry(
+    config: FactoryConfig,
+    *,
+    settings: Mapping[str, Mapping[str, Any]] | None = None,
+    routes: dict[str, ResponsibilityRoute] | None = None,
+) -> ResponsibilityRegistry:
     # Instruction compliance precedes worker health so equal warning scores retain
     # the established AGENTS.md-first tie break. Priority still lets human safety win.
-    return ResponsibilityRegistry(
-        [
-            HumanEscalationResponsibility(config),
-            RepositoryInstructionsResponsibility(config),
-            WorkerHealthResponsibility(config),
-            CompletionResponsibility(config),
-            VerificationResponsibility(config),
-        ]
+    configured = settings or {}
+    repository_settings = configured.get(REPOSITORY_INSTRUCTIONS, {})
+    configured_files = repository_settings.get(
+        "instruction_files", ("AGENTS.override.md", "AGENTS.md")
     )
+    if isinstance(configured_files, str) or not isinstance(configured_files, (list, tuple)):
+        raise ValueError("repository.instructions instruction_files must be an array")
+    if not all(isinstance(filename, str) for filename in configured_files):
+        raise ValueError("repository.instructions instruction_files must contain strings")
+    instruction_files = tuple(configured_files)
+    responsibilities = [
+        HumanEscalationResponsibility(
+            _responsibility_config(config, HUMAN_ESCALATION, configured.get(HUMAN_ESCALATION, {}))
+        ),
+        RepositoryInstructionsResponsibility(
+            _responsibility_config(
+                config,
+                REPOSITORY_INSTRUCTIONS,
+                repository_settings,
+            ),
+            instruction_files=instruction_files,
+        ),
+        WorkerHealthResponsibility(
+            _responsibility_config(config, WORKER_HEALTH, configured.get(WORKER_HEALTH, {}))
+        ),
+        CompletionResponsibility(
+            _responsibility_config(config, COMPLETION, configured.get(COMPLETION, {}))
+        ),
+        VerificationResponsibility(
+            _responsibility_config(config, VERIFICATION, configured.get(VERIFICATION, {}))
+        ),
+    ]
+    return ResponsibilityRegistry(responsibilities, routes=routes)
