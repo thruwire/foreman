@@ -148,6 +148,10 @@ class FactoryRuntime:
         self, worker_id: str, event_type: EventType, payload: dict[str, object]
     ) -> None:
         payload.setdefault("worker_id", worker_id)
+        if event_type is EventType.WORKER_OUTPUT:
+            worker = next((w for w in self.state.workers if w.worker_id == worker_id), None)
+            if worker is not None:
+                worker.last_output_at = datetime.now(UTC)
         self.state.touch()
         self.store.save_state(self.state)
         await self.emit(event_type, payload)

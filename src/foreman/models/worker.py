@@ -40,6 +40,7 @@ class WorkerRecord(BaseModel):
     supports_steering: bool = False
     steer_count: int = Field(default=0, ge=0)
     last_steered_at: datetime | None = None
+    last_output_at: datetime | None = None
     steering_history: list[str] = Field(default_factory=list)
 
     @property

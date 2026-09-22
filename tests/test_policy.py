@@ -253,3 +253,15 @@ def test_deferral_respects_iteration_limit(state, assessment) -> None:
     result = FactoryPolicy(DEFER).decide(state, value)
     assert result.action is InterventionType.ESCALATE
     assert "maximum" in result.reason
+
+
+def test_needs_human_deferred_while_worker_output_is_recent(state, assessment) -> None:
+    from datetime import timedelta
+
+    active(state)
+    config = FactoryConfig(defer_human_while_progressing=True, human_deferral_liveness_seconds=240)
+    value = with_scores(assessment, needs_human=0.85, meaningful_progress=0.1)
+    state.workers[0].last_output_at = datetime.now(UTC) - timedelta(seconds=100)
+    assert FactoryPolicy(config).decide(state, value).action is InterventionType.CONTINUE
+    state.workers[0].last_output_at = datetime.now(UTC) - timedelta(seconds=400)
+    assert FactoryPolicy(config).decide(state, value).action is InterventionType.ESCALATE

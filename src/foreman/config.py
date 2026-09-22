@@ -52,6 +52,10 @@ class FactoryConfig(BaseModel):
     defer_human_while_progressing: bool = False
     human_hard_threshold: float = Field(default=0.95, ge=0.0, le=1.0)
     progress_threshold_for_deferral: float = Field(default=0.40, ge=0.0, le=1.0)
+    # Also defer while the active worker produced output within this many
+    # seconds (objective liveness; LLM "thinking" gaps read as low progress
+    # to Jev). 0 disables the liveness criterion.
+    human_deferral_liveness_seconds: float = Field(default=0.0, ge=0.0)
     off_track_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     agents_drift_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
     stuck_threshold: float = Field(default=0.80, ge=0.0, le=1.0)
@@ -109,6 +113,10 @@ class FactoryConfig(BaseModel):
             "FOREMAN_HUMAN_HARD_THRESHOLD": ("human_hard_threshold", float),
             "FOREMAN_PROGRESS_THRESHOLD_FOR_DEFERRAL": (
                 "progress_threshold_for_deferral",
+                float,
+            ),
+            "FOREMAN_HUMAN_DEFERRAL_LIVENESS_SECONDS": (
+                "human_deferral_liveness_seconds",
                 float,
             ),
         }

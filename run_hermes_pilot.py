@@ -39,6 +39,10 @@ async def main() -> None:
         verify_tests_on_complete=True,
         cold_start_grace_seconds=30.0,
         defer_human_while_progressing=True,
+        human_deferral_liveness_seconds=240,
+        # 20 iterations x ~15s assessments capped a factory at ~5 min, far
+        # below overall_timeout; real-sized chunks need the headroom.
+        max_iterations=80,
         implementation_for_verification_threshold=0.45,
         finish_threshold=0.35,
         requirements_threshold=0.35,

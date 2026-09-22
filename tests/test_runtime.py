@@ -225,3 +225,20 @@ async def test_failing_event_sink_does_not_break_emit(tmp_path) -> None:
     assert runtime.queue.get_nowait() is event
     events = (runtime.store.run_dir(runtime.state.run_id) / "events.jsonl").read_text(encoding="utf-8")
     assert "Primary auth failed" in events
+
+
+@pytest.mark.asyncio
+async def test_worker_output_updates_last_output_at(tmp_path) -> None:
+    runtime = FactoryRuntime(
+        repository=tmp_path,
+        job="job",
+        model=FakeForemanModel([human_assessment()]),
+        config=FactoryConfig(),
+    )
+    runtime.store.initialize(runtime.state)
+    from foreman.models import WorkerRecord, WorkerType
+
+    runtime.state.workers.append(WorkerRecord(worker_id="w1", worker_type=WorkerType.CODING, mission="m"))
+    assert runtime.state.workers[0].last_output_at is None
+    await runtime._worker_emit("w1", EventType.WORKER_OUTPUT, {"line": "x"})
+    assert runtime.state.workers[0].last_output_at is not None

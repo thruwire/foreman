@@ -65,10 +65,16 @@ class FactoryPolicy:
             # On long, detailed missions Jev's needs_human drifts upward while a
             # worker is visibly productive (observed 0.8-0.87 with progress 0.6).
             # Optionally let a progressing worker finish and re-judge on exit.
+            progressing = assessment.meaningful_progress >= self.config.progress_threshold_for_deferral
+            window = self.config.human_deferral_liveness_seconds
+            if not progressing and window > 0 and active_id is not None:
+                worker = next((w for w in state.workers if w.worker_id == active_id), None)
+                seen = worker and (worker.last_output_at or worker.started_at)
+                progressing = bool(seen) and (datetime.now(UTC) - seen).total_seconds() < window
             defer = (
                 self.config.defer_human_while_progressing
                 and active_id is not None
-                and assessment.meaningful_progress >= self.config.progress_threshold_for_deferral
+                and progressing
                 and assessment.needs_human < self.config.human_hard_threshold
             )
             # Deferred: fall through so iteration limits and stuck/off-track
