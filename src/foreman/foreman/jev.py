@@ -1,88 +1,59 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from math import isfinite
 from typing import Any
 
 from foreman.foreman.base import ForemanModelError
-from foreman.models import FactoryAssessment
+from foreman.models import ForemanResult
 from foreman.observation import FactoryObservation
-
-ASSESSMENT_QUESTIONS: dict[str, str] = {
-    "implementation_complete": (
-        "Is the implementation work required by the original job complete?"
-    ),
-    "tests_sufficient": (
-        "Does the work have sufficient relevant test coverage and passing verification?"
-    ),
-    "requirements_satisfied": (
-        "Does the current repository satisfy the original free-form job as a whole?"
-    ),
-    "needs_verification": (
-        "Does the current state warrant an independent verification pass before finishing?"
-    ),
-    "meaningful_progress": (
-        "Is the active or most recent worker making meaningful progress toward the job?"
-    ),
-    "worker_stuck": (
-        "Does the active or most recent worker appear stuck, looping, or unable to advance?"
-    ),
-    "work_off_track": (
-        "Is the current work drifting from the original job or making unrelated changes?"
-    ),
-    "agents_md_drift": (
-        "When agents_md_instructions is present, is the active or most recent worker's behavior "
-        "or repository work materially inconsistent with those repository instructions? "
-        "Answer no when no AGENTS.md instructions are present or the evidence is insufficient."
-    ),
-    "ready_to_finish": (
-        "Given all evidence, is the factory job ready to be declared complete?"
-    ),
-    "needs_human": (
-        "Does this situation require human judgment, credentials, clarification, or permission?"
-    ),
-}
+from foreman.responsibilities import Check
 
 
-def normalize_assessment(values: Mapping[str, Any]) -> FactoryAssessment:
-    """Validate all ten Noul probabilities and clamp minor numeric overshoot."""
+def normalize_check_results(
+    values: Mapping[str, Any],
+    checks: Sequence[Check],
+) -> ForemanResult:
+    """Validate Jev probabilities and group them by owning responsibility."""
 
-    normalized: dict[str, float] = {}
-    missing = set(ASSESSMENT_QUESTIONS) - set(values)
+    expected = {check.key for check in checks}
+    missing = expected - set(values)
     if missing:
         raise ForemanModelError(f"Jev response omitted: {', '.join(sorted(missing))}")
-    for name in ASSESSMENT_QUESTIONS:
-        raw = values[name]
+
+    grouped: dict[str, dict[str, float]] = {}
+    for check in checks:
+        raw = values[check.key]
         if isinstance(raw, bool) or not isinstance(raw, (int, float)):
-            raise ForemanModelError(f"Jev answer {name!r} is not numeric")
+            raise ForemanModelError(f"Jev answer {check.key!r} is not numeric")
         value = float(raw)
         if not isfinite(value):
-            raise ForemanModelError(f"Jev answer {name!r} is not finite")
-        normalized[name] = min(1.0, max(0.0, value))
-    return FactoryAssessment(**normalized)
+            raise ForemanModelError(f"Jev answer {check.key!r} is not finite")
+        grouped.setdefault(check.responsibility_id, {})[check.check_id] = min(1.0, max(0.0, value))
+    return ForemanResult(checks=grouped)
 
 
-def parse_jev_response(response: Any) -> FactoryAssessment:
+def parse_jev_response(response: Any, checks: Sequence[Check]) -> ForemanResult:
     """Translate official SDK response types (or their test doubles) into our model."""
 
     values: dict[str, Any] = {}
     nouls = getattr(response, "nouls", None)
     if nouls is not None:
-        for name in ASSESSMENT_QUESTIONS:
-            answer = nouls.get(name)
+        for check in checks:
+            answer = nouls.get(check.key)
             if answer is not None:
-                values[name] = getattr(answer, "noul", None)
+                values[check.key] = getattr(answer, "noul", None)
     elif isinstance(response, Mapping):
         answers = response.get("answers", response)
         if isinstance(answers, Mapping):
-            for name in ASSESSMENT_QUESTIONS:
-                answer = answers.get(name)
+            for check in checks:
+                answer = answers.get(check.key)
                 if isinstance(answer, Mapping):
-                    values[name] = answer.get("noul")
+                    values[check.key] = answer.get("noul")
                 elif answer is not None:
-                    values[name] = answer
-    return normalize_assessment(values)
+                    values[check.key] = answer
+    return normalize_check_results(values, checks)
 
 
 class JevForemanModel:
@@ -118,7 +89,11 @@ class JevForemanModel:
             ),
         )
 
-    async def assess(self, observation: FactoryObservation) -> FactoryAssessment:
+    async def assess(
+        self,
+        observation: FactoryObservation,
+        checks: Sequence[Check],
+    ) -> ForemanResult:
         try:
             from typesafe_sdk import Noul
         except ImportError as error:
@@ -129,11 +104,8 @@ class JevForemanModel:
                 def __init__(self, *, instructions: str) -> None:
                     self.instructions = instructions
 
-        # One API call evaluates all atomic dimensions in parallel against the same state.
-        questions = {
-            name: Noul(instructions=instructions)
-            for name, instructions in ASSESSMENT_QUESTIONS.items()
-        }
+        # One API call evaluates every active responsibility's checks in parallel.
+        questions = {check.key: Noul(instructions=check.instructions) for check in checks}
         client = self._client or self._make_client()
         if self._client is None:
             self._client = client
@@ -147,13 +119,12 @@ class JevForemanModel:
                 ),
                 timeout=self.timeout_seconds + 0.5,
             )
-            return parse_jev_response(response)
+            return parse_jev_response(response, checks)
         except TimeoutError as error:
             raise ForemanModelError("Jev assessment timed out") from error
         except ForemanModelError:
             raise
         except Exception as error:
-            # SDK-specific errors are deliberately translated so the runtime stays SDK-agnostic.
             message = f"Jev assessment failed: {type(error).__name__}: {error}"
             raise ForemanModelError(message) from error
 

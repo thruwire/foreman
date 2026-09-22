@@ -8,7 +8,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from foreman.models import FactoryEvent, FactoryState
+from foreman.models import FactoryAssessment, FactoryEvent, FactoryState
 
 
 class PersistenceError(RuntimeError):
@@ -75,11 +75,29 @@ class RunStore:
             # V0.1 briefly persisted this derived property; tolerate those inspectable runs.
             for worker in payload.get("workers", []):
                 worker.pop("duration_seconds", None)
+            self._migrate_legacy_assessments(payload)
             return FactoryState.model_validate(payload)
         except FileNotFoundError as error:
             raise PersistenceError(f"run {run_id!r} was not found") from error
         except (OSError, json.JSONDecodeError, ValidationError, ValueError) as error:
             raise PersistenceError(f"state for run {run_id!r} is malformed: {error}") from error
+
+    @staticmethod
+    def _migrate_legacy_assessments(payload: dict[str, object]) -> None:
+        """Translate pre-responsibility state without rewriting the saved run."""
+
+        latest = payload.pop("latest_assessment", None)
+        history = payload.pop("assessment_history", None)
+        if "latest_result" not in payload and isinstance(latest, dict):
+            payload["latest_result"] = (
+                FactoryAssessment.model_validate(latest).to_result().model_dump(mode="json")
+            )
+        if "result_history" not in payload and isinstance(history, list):
+            payload["result_history"] = [
+                FactoryAssessment.model_validate(item).to_result().model_dump(mode="json")
+                for item in history
+            ]
+        payload["schema_version"] = 2
 
     def append_event(self, event: FactoryEvent) -> None:
         path = self.run_dir(event.run_id) / "events.jsonl"

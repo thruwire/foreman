@@ -5,9 +5,11 @@ from math import isfinite
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from foreman.models.result import ForemanResult
+
 
 class FactoryAssessment(BaseModel):
-    """Jev's normalized semantic view of the job and current factory floor."""
+    """Legacy flat assessment retained for persisted-run and API compatibility."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -40,3 +42,30 @@ class FactoryAssessment(BaseModel):
         if not isfinite(value):
             raise ValueError("assessment scores must be finite")
         return value
+
+    def to_result(self) -> ForemanResult:
+        """Convert the legacy flat shape into responsibility-owned checks."""
+
+        return ForemanResult(
+            checks={
+                "core.completion": {
+                    "implementation_complete": self.implementation_complete,
+                    "requirements_satisfied": self.requirements_satisfied,
+                    "ready_to_finish": self.ready_to_finish,
+                },
+                "core.verification": {
+                    "tests_sufficient": self.tests_sufficient,
+                    "needs_verification": self.needs_verification,
+                },
+                "core.worker-health": {
+                    "meaningful_progress": self.meaningful_progress,
+                    "worker_stuck": self.worker_stuck,
+                    "work_off_track": self.work_off_track,
+                },
+                "repository.instructions": {
+                    "agents_md_drift": self.agents_md_drift,
+                },
+                "core.human-escalation": {"needs_human": self.needs_human},
+            },
+            evaluated_at=self.assessed_at,
+        )

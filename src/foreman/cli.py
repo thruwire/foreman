@@ -139,7 +139,7 @@ def inspect_run(
     console.print(state.job)
     console.print(f"Duration: {duration_label(duration)}")
     console.print(f"Workers: {len(state.workers)}")
-    console.print(f"Assessments: {len(state.assessment_history)}")
+    console.print(f"Evaluations: {len(state.result_history)}")
     console.print(f"Result: {state.status.value}")
 
     for event in events:
@@ -165,8 +165,17 @@ def inspect_run(
                 f"{prefix}  {payload.get('worker_id')} {str(payload.get('status', '')).upper()}"
             )
         elif event.event_type is EventType.FOREMAN_ASSESSED:
-            assessment = payload["assessment"]
-            console.print(f"{prefix}  Foreman assessment")
+            result = payload.get("result")
+            if isinstance(result, dict):
+                assessment = {
+                    key: value
+                    for checks in result["checks"].values()
+                    for key, value in checks.items()
+                }
+            else:
+                # Historical event logs used a flat assessment payload.
+                assessment = payload["assessment"]
+            console.print(f"{prefix}  Foreman evaluation")
             for label, key in [
                 ("implementation", "implementation_complete"),
                 ("requirements", "requirements_satisfied"),

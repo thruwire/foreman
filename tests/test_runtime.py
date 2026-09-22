@@ -6,13 +6,19 @@ import pytest
 
 from foreman.config import FactoryConfig
 from foreman.foreman import FakeForemanModel, ForemanModelError
-from foreman.foreman.simulation import DEMO_ASSESSMENTS
-from foreman.models import EventType, FactoryAssessment, FactoryStatus, InterventionType
+from foreman.foreman.simulation import DEMO_RESULTS
+from foreman.models import (
+    EventType,
+    FactoryAssessment,
+    FactoryStatus,
+    ForemanResult,
+    InterventionType,
+)
 from foreman.runtime import FactoryRuntime
 from foreman.workers import FakeWorker
 
 
-def human_assessment() -> FactoryAssessment:
+def human_assessment() -> ForemanResult:
     return FactoryAssessment(
         implementation_complete=0,
         tests_sufficient=0,
@@ -24,7 +30,14 @@ def human_assessment() -> FactoryAssessment:
         agents_md_drift=0,
         ready_to_finish=0,
         needs_human=1,
-    )
+    ).to_result()
+
+
+def continuing_result() -> ForemanResult:
+    result = human_assessment().model_copy(deep=True)
+    result.checks["core.human-escalation"]["needs_human"] = 0
+    result.checks["core.worker-health"]["meaningful_progress"] = 1
+    return result
 
 
 @pytest.mark.asyncio
@@ -68,7 +81,7 @@ def test_runtime_rejects_empty_job(tmp_path) -> None:
 
 @pytest.mark.asyncio
 async def test_overall_timeout_terminates_worker_and_persists_failure(tmp_path) -> None:
-    continuing = human_assessment().model_copy(update={"needs_human": 0, "meaningful_progress": 1})
+    continuing = continuing_result()
     runtime = FactoryRuntime(
         repository=tmp_path,
         job="Long job",
@@ -90,7 +103,7 @@ async def test_overall_timeout_terminates_worker_and_persists_failure(tmp_path) 
 
 @pytest.mark.asyncio
 async def test_runtime_cancellation_stops_active_worker(tmp_path) -> None:
-    continuing = human_assessment().model_copy(update={"needs_human": 0, "meaningful_progress": 1})
+    continuing = continuing_result()
     started = asyncio.Event()
 
     def observe(event) -> None:
@@ -151,11 +164,12 @@ class FlakyModel:
     def __init__(self, failures: int) -> None:
         self.remaining = failures
 
-    async def assess(self, observation):
+    async def assess(self, observation, checks):
+        del observation, checks
         if self.remaining > 0:
             self.remaining -= 1
             raise ForemanModelError("transient outage")
-        return DEMO_ASSESSMENTS[0].model_copy(deep=True)
+        return DEMO_RESULTS[0].model_copy(deep=True)
 
     async def close(self) -> None:
         return None

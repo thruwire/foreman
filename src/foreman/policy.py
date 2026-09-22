@@ -1,127 +1,104 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 from foreman.config import FactoryConfig
-from foreman.models import (
-    FactoryAssessment,
-    FactoryState,
-    Intervention,
-    InterventionType,
-)
+from foreman.models import Directive, FactoryState, ForemanResult, InterventionType
+from foreman.responsibilities import ResponsibilityRegistry, builtin_registry
 
 
 @dataclass(slots=True)
 class FactoryPolicy:
-    """Deterministic safety and lifecycle rules applied after semantic assessment."""
+    """Collect responsibility directives and select one under deterministic guardrails."""
 
     config: FactoryConfig
+    responsibilities: ResponsibilityRegistry | None = None
 
-    def decide(self, state: FactoryState, assessment: FactoryAssessment) -> Intervention:
-        iteration = max(1, state.iteration)
+    def __post_init__(self) -> None:
+        if self.responsibilities is None:
+            self.responsibilities = builtin_registry(self.config)
 
-        def result(
-            action: InterventionType, reason: str, worker_id: str | None = None
-        ) -> Intervention:
-            return Intervention(
-                action=action,
-                reason=reason,
-                assessment_iteration=iteration,
-                worker_id=worker_id,
+    def _runtime_directive(
+        self,
+        state: FactoryState,
+        action: InterventionType,
+        reason: str,
+        *,
+        priority: int,
+    ) -> Directive:
+        return Directive(
+            action=action,
+            reason=reason,
+            assessment_iteration=max(1, state.iteration),
+            responsibility_id="foreman.runtime",
+            priority=priority,
+        )
+
+    def evaluate(self, state: FactoryState, result: ForemanResult) -> ForemanResult:
+        assert self.responsibilities is not None
+        proposed = self.responsibilities.directives(state, result)
+
+        # Hard iteration limits remain a runtime invariant, not responsibility semantics.
+        if state.iteration >= state.max_iterations:
+            proposed.append(
+                self._runtime_directive(
+                    state,
+                    InterventionType.ESCALATE,
+                    "maximum Foreman iterations reached",
+                    priority=950,
+                )
             )
 
-        active_id = state.active_workers[0] if state.active_workers else None
+        if not proposed:
+            selected = self._runtime_directive(
+                state,
+                InterventionType.CONTINUE,
+                "active worker may continue",
+                priority=0,
+            )
+        else:
+            # `max` is stable, so responsibility order supplies deterministic tie-breaking.
+            selected = max(
+                proposed,
+                key=lambda directive: (
+                    directive.priority,
+                    directive.confidence if directive.confidence is not None else -1.0,
+                ),
+            )
 
-        # Order is intentional: safety and hard limits win before productivity decisions.
-        if assessment.needs_human >= self.config.human_threshold:
-            return result(InterventionType.ESCALATE, "semantic assessment requires human input")
-
-        if state.iteration >= state.max_iterations:
-            return result(InterventionType.ESCALATE, "maximum Foreman iterations reached")
-
-        if active_id:
-            off_track = assessment.work_off_track >= self.config.off_track_threshold
-            agents_drift = assessment.agents_md_drift >= self.config.agents_drift_threshold
-            stuck = assessment.worker_stuck >= self.config.stuck_threshold
-            if off_track or agents_drift or stuck:
-                worker = next(item for item in state.workers if item.worker_id == active_id)
-                warning_scores = (
-                    (
-                        assessment.agents_md_drift if agents_drift else -1.0,
-                        "active worker appears to be drifting from repository "
-                        "AGENTS.md instructions",
-                    ),
-                    (
-                        assessment.work_off_track if off_track else -1.0,
-                        "active worker appears off track",
-                    ),
-                    (
-                        assessment.worker_stuck if stuck else -1.0,
-                        "active worker appears stuck",
-                    ),
-                )
-                reason = max(warning_scores, key=lambda warning: warning[0])[1]
-                if worker.last_steered_at is not None:
-                    since_steer = (datetime.now(UTC) - worker.last_steered_at).total_seconds()
-                    if since_steer < self.config.steering_grace_seconds:
-                        return result(
-                            InterventionType.CONTINUE,
-                            "active worker is within the post-steering grace period",
-                            active_id,
-                        )
-                if (
-                    self.config.steering_enabled
-                    and worker.supports_steering
-                    and worker.steer_count < self.config.max_steers_per_worker
-                ):
-                    return result(InterventionType.STEER_WORKER, reason, active_id)
-                return result(InterventionType.STOP_WORKER, reason, active_id)
-
-        if (
-            not active_id
-            and state.latest_intervention is not None
-            and state.latest_intervention.action is InterventionType.STOP_WORKER
-        ):
+        if selected.action is InterventionType.RETRY_WORKER:
             retry_allowed = state.retry_count < self.config.max_retries
             worker_allowed = len(state.workers) < self.config.max_workers
-            if retry_allowed and worker_allowed:
-                return result(
-                    InterventionType.RETRY_WORKER,
-                    "retrying stopped worker with a fresh agent",
+            if not retry_allowed or not worker_allowed:
+                selected = self._runtime_directive(
+                    state,
+                    InterventionType.ESCALATE,
+                    "worker retry limit reached",
+                    priority=selected.priority,
                 )
-            return result(InterventionType.ESCALATE, "worker retry limit reached")
-
-        finish_ready = (
-            assessment.ready_to_finish >= self.config.finish_threshold
-            and assessment.requirements_satisfied >= self.config.requirements_threshold
-            and assessment.tests_sufficient >= self.config.tests_threshold
-        )
-        verification_resolved = (
-            state.verification_completed
-            or assessment.needs_verification < self.config.verification_threshold
-        )
-        if not active_id and finish_ready and verification_resolved:
-            return result(InterventionType.FINISH, "completion thresholds satisfied")
-
-        should_verify = (
-            not active_id
-            and assessment.needs_verification >= self.config.verification_threshold
-            and assessment.implementation_complete
-            >= self.config.implementation_for_verification_threshold
-            and not state.verification_started
-        )
-        if should_verify:
+                proposed.append(selected)
+        elif selected.action is InterventionType.START_VERIFIER:
             if len(state.workers) >= self.config.max_workers:
-                return result(
+                selected = self._runtime_directive(
+                    state,
                     InterventionType.ESCALATE,
                     "verification needed but worker limit reached",
+                    priority=selected.priority,
                 )
-            return result(InterventionType.START_VERIFIER, "independent verification is warranted")
-
-        if not active_id:
+                proposed.append(selected)
+        elif selected.action is InterventionType.START_WORKER:
             if len(state.workers) >= self.config.max_workers:
-                return result(InterventionType.ESCALATE, "worker limit reached before completion")
-            return result(InterventionType.START_WORKER, "meaningful implementation work remains")
+                selected = self._runtime_directive(
+                    state,
+                    InterventionType.ESCALATE,
+                    "worker limit reached before completion",
+                    priority=selected.priority,
+                )
+                proposed.append(selected)
 
-        return result(InterventionType.CONTINUE, "active worker may continue")
+        return result.with_directives(proposed, selected)
+
+    def decide(self, state: FactoryState, result: ForemanResult) -> Directive:
+        evaluated = self.evaluate(state, result)
+        assert evaluated.selected_directive is not None
+        return evaluated.selected_directive

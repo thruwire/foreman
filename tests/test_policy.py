@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 from foreman.config import FactoryConfig
 from foreman.models import (
-    FactoryAssessment,
+    ForemanResult,
     Intervention,
     InterventionType,
     WorkerRecord,
@@ -13,9 +13,25 @@ from foreman.models import (
 )
 from foreman.policy import FactoryPolicy
 
+RESPONSIBILITY_BY_CHECK = {
+    "implementation_complete": "core.completion",
+    "requirements_satisfied": "core.completion",
+    "ready_to_finish": "core.completion",
+    "tests_sufficient": "core.verification",
+    "needs_verification": "core.verification",
+    "meaningful_progress": "core.worker-health",
+    "worker_stuck": "core.worker-health",
+    "work_off_track": "core.worker-health",
+    "agents_md_drift": "repository.instructions",
+    "needs_human": "core.human-escalation",
+}
 
-def with_scores(assessment: FactoryAssessment, **scores: float) -> FactoryAssessment:
-    return assessment.model_copy(update=scores)
+
+def with_scores(result: ForemanResult, **scores: float) -> ForemanResult:
+    updated = result.model_copy(deep=True)
+    for check_id, value in scores.items():
+        updated.checks[RESPONSIBILITY_BY_CHECK[check_id]][check_id] = value
+    return updated
 
 
 def active(state, *, supports_steering: bool = True) -> None:
@@ -35,6 +51,20 @@ def test_continue(state, assessment) -> None:
     active(state)
     result = FactoryPolicy(FactoryConfig()).decide(state, assessment)
     assert result.action is InterventionType.CONTINUE
+
+
+def test_evaluation_keeps_all_proposals_and_selected_directive(state, assessment) -> None:
+    active(state)
+    value = with_scores(assessment, needs_human=0.95, worker_stuck=0.95)
+
+    result = FactoryPolicy(FactoryConfig()).evaluate(state, value)
+
+    assert {item.responsibility_id for item in result.proposed_directives} == {
+        "core.human-escalation",
+        "core.worker-health",
+    }
+    assert result.selected_directive is not None
+    assert result.selected_directive.responsibility_id == "core.human-escalation"
 
 
 def test_start_worker(state, assessment) -> None:

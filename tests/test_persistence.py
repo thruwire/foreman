@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from foreman.models import EventType, FactoryEvent, WorkerRecord, WorkerType
+from foreman.models import EventType, FactoryAssessment, FactoryEvent, WorkerRecord, WorkerType
 from foreman.persistence import PersistenceError, RunStore
 
 
@@ -28,6 +28,38 @@ def test_state_recovery_with_worker(state, tmp_path) -> None:
     restored = store.load_state(state.run_id)
     assert restored.workers == [worker]
     assert "duration_seconds" not in (store.run_dir(state.run_id) / "state.json").read_text()
+
+
+def test_legacy_assessment_state_is_migrated_on_read(state, tmp_path) -> None:
+    store = RunStore(tmp_path)
+    store.initialize(state)
+    legacy = FactoryAssessment(
+        implementation_complete=0.8,
+        tests_sufficient=0.7,
+        requirements_satisfied=0.8,
+        needs_verification=0.4,
+        meaningful_progress=0.9,
+        worker_stuck=0.1,
+        work_off_track=0.1,
+        agents_md_drift=0.0,
+        ready_to_finish=0.7,
+        needs_human=0.0,
+    ).model_dump(mode="json")
+    path = store.run_dir(state.run_id) / "state.json"
+    payload = json.loads(path.read_text())
+    payload.pop("schema_version")
+    payload.pop("latest_result")
+    payload.pop("result_history")
+    payload["latest_assessment"] = legacy
+    payload["assessment_history"] = [legacy]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    restored = store.load_state(state.run_id)
+
+    assert restored.schema_version == 2
+    assert restored.latest_result is not None
+    assert restored.latest_result.probability("core.completion", "implementation_complete") == 0.8
+    assert len(restored.result_history) == 1
 
 
 def test_state_write_leaves_no_temporary_file(state, tmp_path) -> None:

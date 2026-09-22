@@ -48,6 +48,14 @@ class Intervention(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     assessment_iteration: int = Field(ge=1)
     worker_id: str | None = None
+    responsibility_id: str = "foreman.runtime"
+    priority: int = 0
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+# A directive is an intervention proposed by a responsibility. The compatibility
+# name remains public because persisted runs and existing embedders use it.
+Directive = Intervention
 
 
 class FactoryEvent(BaseModel):

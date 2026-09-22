@@ -5,13 +5,17 @@ from types import SimpleNamespace
 
 import pytest
 
+from foreman.config import FactoryConfig
 from foreman.foreman import ForemanModelError, JevForemanModel
-from foreman.foreman.jev import ASSESSMENT_QUESTIONS, normalize_assessment, parse_jev_response
+from foreman.foreman.jev import normalize_check_results, parse_jev_response
 from foreman.observation import FactoryObservation
+from foreman.responsibilities import builtin_registry
+
+CHECKS = builtin_registry(FactoryConfig()).checks()
 
 
 def values(value: float = 0.5) -> dict[str, float]:
-    return dict.fromkeys(ASSESSMENT_QUESTIONS, value)
+    return {check.key: value for check in CHECKS}
 
 
 def observation() -> FactoryObservation:
@@ -33,7 +37,7 @@ def observation() -> FactoryObservation:
         test_results=[],
         verification_results=[],
         recent_events=[],
-        previous_assessment=None,
+        previous_result=None,
         previous_intervention=None,
         attempts=0,
         failures=[],
@@ -45,26 +49,28 @@ def test_valid_jev_assessment_parsing() -> None:
     response = SimpleNamespace(
         nouls={name: SimpleNamespace(noul=value) for name, value in values(0.75).items()}
     )
-    assert parse_jev_response(response).tests_sufficient == 0.75
+    result = parse_jev_response(response, CHECKS)
+    assert result.probability("core.verification", "tests_sufficient") == 0.75
 
 
 def test_dictionary_jev_assessment_parsing() -> None:
     response = {"answers": {name: {"noul": value} for name, value in values(0.4).items()}}
-    assert parse_jev_response(response).worker_stuck == 0.4
+    result = parse_jev_response(response, CHECKS)
+    assert result.probability("core.worker-health", "worker_stuck") == 0.4
 
 
 def test_malformed_jev_response() -> None:
     with pytest.raises(ForemanModelError, match="omitted"):
-        parse_jev_response({"answers": {}})
+        parse_jev_response({"answers": {}}, CHECKS)
 
 
 def test_assessment_normalization() -> None:
     raw = values()
-    raw["worker_stuck"] = 1.001
-    raw["work_off_track"] = -0.001
-    result = normalize_assessment(raw)
-    assert result.worker_stuck == 1.0
-    assert result.work_off_track == 0.0
+    raw["core.worker-health__worker_stuck"] = 1.001
+    raw["core.worker-health__work_off_track"] = -0.001
+    result = normalize_check_results(raw, CHECKS)
+    assert result.probability("core.worker-health", "worker_stuck") == 1.0
+    assert result.probability("core.worker-health", "work_off_track") == 0.0
 
 
 class Client:
@@ -88,9 +94,9 @@ async def test_jev_model_builds_parallel_noul_call() -> None:
         nouls={name: SimpleNamespace(noul=value) for name, value in values(0.6).items()}
     )
     client = Client(result=response)
-    result = await JevForemanModel(client=client).assess(observation())
-    assert result.ready_to_finish == 0.6
-    assert set(client.calls[0]["questions"]) == set(ASSESSMENT_QUESTIONS)
+    result = await JevForemanModel(client=client).assess(observation(), CHECKS)
+    assert result.probability("core.completion", "ready_to_finish") == 0.6
+    assert set(client.calls[0]["questions"]) == {check.key for check in CHECKS}
     assert client.calls[0]["model"] == "jev-latest"
     assert (
         client.calls[0]["state"]["agents_md_instructions"]
@@ -102,11 +108,11 @@ async def test_jev_model_builds_parallel_noul_call() -> None:
 async def test_jev_failure_is_translated() -> None:
     model = JevForemanModel(client=Client(error=RuntimeError("offline")))
     with pytest.raises(ForemanModelError, match="RuntimeError"):
-        await model.assess(observation())
+        await model.assess(observation(), CHECKS)
 
 
 @pytest.mark.asyncio
 async def test_jev_timeout_is_translated() -> None:
     model = JevForemanModel(client=Client(delay=1), timeout_seconds=0.01)
     with pytest.raises(ForemanModelError, match="timed out"):
-        await model.assess(observation())
+        await model.assess(observation(), CHECKS)
