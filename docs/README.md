@@ -7,5 +7,6 @@ These notes explain the experiment behind the implementation:
 - [What Foreman is proving](what-foreman-proves.md) states the hypotheses and evidence boundaries.
 - [Runtime and event flow](runtime.md) is the implementation guide.
 - [Live steering](steering.md) explains how Jev guidance reaches an active Codex turn.
+- [System 1.5 ecosystem interop](ecosystem-interop.md) explores how Foreman composes with quality gates and tool guardrails.
 
 The root [README](../README.md) remains the installation and command reference.
