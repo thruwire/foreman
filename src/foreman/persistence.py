@@ -100,7 +100,11 @@ class RunStore:
         payload.setdefault("candidate_responsibility_ids", [])
         payload.setdefault("active_responsibility_ids", [])
         payload.setdefault("routing_scores", {})
-        payload["schema_version"] = 3
+        payload.setdefault("routing_bindings", {})
+        payload.setdefault("routing_trace", [])
+        payload.setdefault("active_extension_ids", [])
+        payload.setdefault("extension_snapshot_revisions", {})
+        payload["schema_version"] = 4
 
     def append_event(self, event: FactoryEvent) -> None:
         path = self.run_dir(event.run_id) / "events.jsonl"

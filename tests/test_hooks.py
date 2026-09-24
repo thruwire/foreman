@@ -19,8 +19,8 @@ from foreman.hooks import (
     HookEventKind,
 )
 from foreman.models import FactoryStatus, ForemanResult, WorkerStatus
-from foreman.responsibilities import configured_registry
-from foreman.routing import ResponsibilityRoutingError, RoutingDecision
+from foreman.responsibilities import ResponsibilityRoute, configured_registry
+from foreman.routing import ResponsibilityRoutingError, RouteGroup, RoutingDecision
 
 
 class StubRouter:
@@ -31,13 +31,26 @@ class StubRouter:
     async def route(self, work, candidates):
         self.calls.append(work)
         active = list(candidates.global_ids())
-        scores = {"quality.documentation": 0.94}
-        if "documentation" in work.lower():
+        candidate_ids = {item.id for item in candidates.responsibilities}
+        scores = (
+            {"quality.documentation": 0.94}
+            if "quality.documentation" in candidate_ids
+            else {}
+        )
+        if "documentation" in work.lower() and "quality.documentation" in candidate_ids:
             active.append("quality.documentation")
         return RoutingDecision(active_responsibility_ids=active, scores=scores)
 
     async def close(self) -> None:
         self.closed = True
+
+    async def route_groups(self, work, groups):
+        del work
+        return RoutingDecision(
+            active_responsibility_ids=[
+                group_id for group_id, route in groups.items() if route.always
+            ]
+        )
 
 
 class FailingRouter(StubRouter):
@@ -407,3 +420,63 @@ async def test_runtime_accepts_normalized_events_from_another_client(tmp_path) -
     assert session.client == "other-client"
     assert session.state.workers[0].client == "other-client"
     assert session.state.workers[0].codex_thread_id is None
+
+
+@pytest.mark.asyncio
+async def test_attached_runtime_persists_extension_route_context(tmp_path) -> None:
+    runtime_config = config()
+    store = AttachedSessionStore(tmp_path / "data", ttl_seconds=60)
+    supervisor = AttachedWorkerRuntime(
+        model=StubModel(),
+        router=StubRouter(),
+        responsibilities=configured_registry(runtime_config),
+        config=runtime_config,
+        store=store,
+        routing_groups=(
+            RouteGroup(
+                id="example.project",
+                route=ResponsibilityRoute(always=True),
+                responsibility_ids=("quality.documentation",),
+                bindings={"project_id": "project-123"},
+            ),
+        ),
+        active_extension_ids=("example",),
+        extension_snapshot_revisions={"example": "revision-1"},
+    )
+
+    await handle(
+        supervisor,
+        event("UserPromptSubmit", tmp_path, prompt="Update the documentation"),
+    )
+
+    session = store.load("thr-attached-123")
+    assert session is not None and session.state is not None
+    assert session.state.routing_bindings == {
+        "example.project": {"project_id": "project-123"}
+    }
+    assert session.state.active_extension_ids == ["example"]
+    assert session.state.extension_snapshot_revisions == {"example": "revision-1"}
+
+
+@pytest.mark.asyncio
+async def test_attached_runtime_rejects_snapshot_change_between_hooks(tmp_path) -> None:
+    supervisor, store, router = runtime(tmp_path)
+    supervisor.active_extension_ids = ("example",)
+    supervisor.extension_snapshot_revisions = {"example": "revision-1"}
+    await handle(supervisor, event("UserPromptSubmit", tmp_path, prompt="Implement it"))
+
+    changed = AttachedWorkerRuntime(
+        model=StubModel(),
+        router=router,
+        responsibilities=configured_registry(config()),
+        config=config(),
+        store=store,
+        active_extension_ids=("example",),
+        extension_snapshot_revisions={"example": "revision-2"},
+    )
+
+    with pytest.raises(HookError, match="snapshots changed"):
+        await handle(
+            changed,
+            event("PreToolUse", tmp_path, tool_name="Bash", tool_input={"command": "pwd"}),
+        )

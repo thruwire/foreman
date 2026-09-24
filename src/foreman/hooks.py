@@ -27,12 +27,14 @@ from foreman.models import (
     WorkerType,
 )
 from foreman.observation import build_observation
+from foreman.paths import foreman_data_dir
 from foreman.policy import FactoryPolicy
 from foreman.responsibilities import ResponsibilityRegistry
 from foreman.routing import (
     ResponsibilityRouter,
     ResponsibilityRoutingError,
-    resolved_responsibility_ids,
+    RouteGroup,
+    resolve_hierarchical_routing,
 )
 
 
@@ -126,10 +128,7 @@ class AttachedSession(BaseModel):
 
 
 def default_foreman_data_dir() -> Path:
-    configured = os.getenv("FOREMAN_DATA_DIR")
-    if configured:
-        return Path(configured).expanduser().resolve()
-    return (Path.home() / ".foreman").resolve()
+    return foreman_data_dir()
 
 
 class AttachedSessionStore:
@@ -346,12 +345,18 @@ class AttachedWorkerRuntime:
         responsibilities: ResponsibilityRegistry,
         config: FactoryConfig,
         store: AttachedSessionStore | None = None,
+        routing_groups: tuple[RouteGroup, ...] = (),
+        active_extension_ids: tuple[str, ...] = (),
+        extension_snapshot_revisions: dict[str, str] | None = None,
     ) -> None:
         self.model = model
         self.router = router
         self.candidates = responsibilities
         self.config = config
         self.store = store or AttachedSessionStore(ttl_seconds=config.hook_session_ttl_seconds)
+        self.routing_groups = routing_groups
+        self.active_extension_ids = active_extension_ids
+        self.extension_snapshot_revisions = dict(extension_snapshot_revisions or {})
 
     async def handle(self, event: HookEvent) -> HookOutcome:
         repository = _repository_root(event.cwd)
@@ -386,6 +391,16 @@ class AttachedWorkerRuntime:
                     raise HookError(
                         f"{event.source_event_name} arrived before work_submitted"
                     )
+                if (
+                    session.state.active_extension_ids != list(self.active_extension_ids)
+                    or
+                    session.state.extension_snapshot_revisions
+                    != self.extension_snapshot_revisions
+                ):
+                    raise HookError(
+                        "extension snapshots changed during this attached session; "
+                        "submit the work prompt again"
+                    )
                 output = await self._assess_event(session, event)
 
             self._bound_state(session)
@@ -397,8 +412,13 @@ class AttachedWorkerRuntime:
         self, session: AttachedSession, event: HookEvent
     ) -> HookOutcome:
         assert event.prompt is not None
-        decision = await self.router.route(event.prompt.strip(), self.candidates)
-        active_ids = resolved_responsibility_ids(decision, self.candidates)
+        decision = await resolve_hierarchical_routing(
+            event.prompt.strip(),
+            self.candidates,
+            self.routing_groups,
+            self.router,
+        )
+        active_ids = decision.active_responsibility_ids
         if not active_ids:
             raise ResponsibilityRoutingError("routing activated no responsibilities")
 
@@ -421,6 +441,10 @@ class AttachedWorkerRuntime:
         state.max_iterations = self.config.max_iterations
         state.active_responsibility_ids = active_ids
         state.routing_scores = dict(decision.scores)
+        state.routing_bindings = decision.bindings
+        state.routing_trace = [item.model_dump(mode="json") for item in decision.trace]
+        state.active_extension_ids = list(self.active_extension_ids)
+        state.extension_snapshot_revisions = dict(self.extension_snapshot_revisions)
         state.retry_count = 0
         state.consecutive_assessment_failures = 0
         state.verification_started = False

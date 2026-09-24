@@ -6,6 +6,9 @@ These notes explain the experiment behind the implementation:
 - [Why Jev fits](why-jev.md) maps Jev's actual primitives to Foreman's needs.
 - [What Foreman is proving](what-foreman-proves.md) states the hypotheses and evidence boundaries.
 - [Runtime and event flow](runtime.md) is the implementation guide.
+- [Responsibility configuration and routing](routing.md) explains central definitions and matching.
+- [Extensions](extensions.md) defines registration, lifecycle, snapshots, and hierarchical routing.
+- [Coding-assistant hooks](hooks.md) describes the adapter-neutral attached-worker protocol.
 - [Live steering](steering.md) explains how Jev guidance reaches an active Codex turn.
 
 The root [README](../README.md) remains the installation and command reference.

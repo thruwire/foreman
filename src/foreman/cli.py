@@ -14,10 +14,17 @@ from rich.console import Console
 from rich.table import Table
 
 from foreman.config import FactoryConfig
+from foreman.extensions import (
+    ExtensionError,
+    ExtensionIdentity,
+    ExtensionManager,
+    ExtensionSnapshot,
+)
 from foreman.foreman import FakeForemanModel, JevForemanModel
 from foreman.hook_adapters import hook_adapter
 from foreman.hooks import AttachedSessionStore, AttachedWorkerRuntime, HookError, run_hook
 from foreman.models import EventType, FactoryStatus, WorkerType
+from foreman.paths import foreman_config_path, foreman_data_dir
 from foreman.persistence import PersistenceError, RunStore
 from foreman.responsibilities import (
     ResponsibilityConfigError,
@@ -33,6 +40,8 @@ app = typer.Typer(
     help="Supervise coding workers with a fast semantic decision loop.",
     no_args_is_help=True,
 )
+extension_app = typer.Typer(help="Manage configured Foreman extensions.", no_args_is_help=True)
+app.add_typer(extension_app, name="extension")
 console = Console()
 
 
@@ -43,6 +52,127 @@ def _run_async(runtime: FactoryRuntime) -> FactoryStatus:
         console.print("\nFactory interrupted.")
         raise typer.Exit(code=130) from None
     return state.status
+
+
+def _extension_manager(data_dir: Path | None) -> ExtensionManager:
+    return ExtensionManager(data_dir=data_dir)
+
+
+@extension_app.command("login")
+def extension_login(
+    extension_id: Annotated[str, typer.Argument(help="Configured extension id")],
+    data_dir: Annotated[
+        Path | None,
+        typer.Option("--data-dir", file_okay=False, resolve_path=True),
+    ] = None,
+) -> None:
+    """Authenticate an extension and immediately synchronize its snapshot."""
+
+    manager: ExtensionManager | None = None
+    try:
+        manager = _extension_manager(data_dir)
+
+        async def login_and_close() -> tuple[ExtensionIdentity, ExtensionSnapshot | None]:
+            try:
+                return await manager.login(extension_id)
+            finally:
+                await manager.close()
+
+        identity, snapshot = asyncio.run(login_and_close())
+    except ExtensionError as error:
+        console.print(str(error))
+        raise typer.Exit(code=2) from error
+    label = identity.display_name or identity.subject
+    console.print(f"Authenticated {extension_id} as {label}")
+    if snapshot is not None:
+        console.print(f"Synchronized revision {snapshot.revision}")
+
+
+@extension_app.command("sync")
+def extension_sync(
+    extension_id: Annotated[str, typer.Argument(help="Configured extension id")],
+    data_dir: Annotated[
+        Path | None,
+        typer.Option("--data-dir", file_okay=False, resolve_path=True),
+    ] = None,
+) -> None:
+    """Fetch and atomically cache an extension snapshot."""
+
+    try:
+        manager = _extension_manager(data_dir)
+
+        async def sync_and_close() -> ExtensionSnapshot:
+            try:
+                return await manager.sync(extension_id)
+            finally:
+                await manager.close()
+
+        snapshot = asyncio.run(sync_and_close())
+    except ExtensionError as error:
+        console.print(str(error))
+        raise typer.Exit(code=2) from error
+    console.print(f"Synchronized {extension_id} revision {snapshot.revision}")
+
+
+@extension_app.command("logout")
+def extension_logout(
+    extension_id: Annotated[str, typer.Argument(help="Configured extension id")],
+    data_dir: Annotated[
+        Path | None,
+        typer.Option("--data-dir", file_okay=False, resolve_path=True),
+    ] = None,
+) -> None:
+    """Remove an extension login and its cached snapshot."""
+
+    try:
+        manager = _extension_manager(data_dir)
+
+        async def logout_and_close() -> None:
+            try:
+                await manager.logout(extension_id)
+            finally:
+                await manager.close()
+
+        asyncio.run(logout_and_close())
+    except ExtensionError as error:
+        console.print(str(error))
+        raise typer.Exit(code=2) from error
+    console.print(f"Logged out {extension_id}")
+
+
+@extension_app.command("status")
+def extension_status(
+    extension_id: Annotated[str | None, typer.Argument(help="Configured extension id")] = None,
+    data_dir: Annotated[
+        Path | None,
+        typer.Option("--data-dir", file_okay=False, resolve_path=True),
+    ] = None,
+) -> None:
+    """Show installed state and cached revisions without using the network."""
+
+    try:
+        manager = _extension_manager(data_dir)
+        statuses = manager.status()
+        asyncio.run(manager.close())
+    except ExtensionError as error:
+        console.print(str(error))
+        raise typer.Exit(code=2) from error
+    if extension_id is not None:
+        statuses = [item for item in statuses if item["id"] == extension_id]
+        if not statuses:
+            console.print(f"extension {extension_id!r} is not configured")
+            raise typer.Exit(code=2)
+    table = Table("Extension", "Login", "Sync", "Snapshot", "Expires")
+    for item in statuses:
+        expiration = item["snapshot_expires_at"]
+        table.add_row(
+            str(item["id"]),
+            "yes" if item["supports_login"] else "no",
+            "yes" if item["supports_sync"] else "no",
+            str(item["snapshot_revision"] or "missing"),
+            expiration.isoformat() if expiration is not None else "-",
+        )
+    console.print(table)
 
 
 @app.command()
@@ -66,7 +196,11 @@ def hook(
 ) -> None:
     """Process one coding-assistant hook event from stdin."""
 
+    extensions: ExtensionManager | None = None
+    runtime_started = False
     try:
+        central_data_dir = foreman_data_dir(data_dir)
+        central_config_path = foreman_config_path(central_data_dir)
         payload = json.loads(sys.stdin.read())
         if not isinstance(payload, dict):
             raise HookError("hook input must be a JSON object")
@@ -74,23 +208,55 @@ def hook(
         event = adapter.parse(payload)
         load_dotenv(override=False)
         config = FactoryConfig.from_environment()
+        extensions = ExtensionManager(
+            data_dir=central_data_dir,
+            config_path=central_config_path,
+        )
+        activated = extensions.activate(config)
+        registrations = activated.responsibilities
         runtime = AttachedWorkerRuntime(
             model=JevForemanModel(timeout_seconds=config.jev_timeout_seconds),
             router=JevResponsibilityRouter(timeout_seconds=config.jev_timeout_seconds),
-            responsibilities=configured_registry(config),
+            responsibilities=configured_registry(
+                config,
+                additional=(item.implementation for item in registrations),
+                additional_configs={
+                    item.implementation.id: item.definition for item in registrations
+                },
+            ),
             config=config,
             store=AttachedSessionStore(
-                data_dir,
+                central_data_dir,
                 ttl_seconds=config.hook_session_ttl_seconds,
                 lock_timeout_seconds=max(30.0, config.jev_timeout_seconds * 3),
             ),
+            routing_groups=activated.routing_groups,
+            active_extension_ids=activated.extension_ids,
+            extension_snapshot_revisions=dict(activated.snapshot_revisions),
         )
-        outcome = asyncio.run(run_hook(runtime, event))
+
+        async def process_hook() -> object:
+            try:
+                return await run_hook(runtime, event)
+            finally:
+                await extensions.close()
+
+        runtime_started = True
+        outcome = asyncio.run(process_hook())
         output = adapter.render(event, outcome)
-    except (json.JSONDecodeError, HookError, ResponsibilityConfigError) as error:
+    except (
+        json.JSONDecodeError,
+        ExtensionError,
+        HookError,
+        ResponsibilityConfigError,
+    ) as error:
+        if extensions is not None and not runtime_started:
+            asyncio.run(extensions.close())
         typer.echo(f"foreman hook: {error}", err=True)
         raise typer.Exit(code=2) from error
     except Exception as error:
+        if extensions is not None and not runtime_started:
+            asyncio.run(extensions.close())
         typer.echo(f"foreman hook failed: {type(error).__name__}: {error}", err=True)
         raise typer.Exit(code=1) from error
     sys.stdout.write(json.dumps(output, separators=(",", ":")))
@@ -113,12 +279,23 @@ def run(
             help="Optional Foreman-wide responsibility overrides",
         ),
     ] = None,
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--data-dir",
+            file_okay=False,
+            resolve_path=True,
+            help="Foreman-wide configuration and extension data directory",
+        ),
+    ] = None,
 ) -> None:
     """Launch a real Codex worker supervised by TypeSafe AI Jev."""
 
     # Capture the process-level factory setting before reading the target repository's
     # local environment. A managed repository cannot select Foreman's responsibilities.
     central_responsibilities_dir = responsibilities_dir
+    central_data_dir = foreman_data_dir(data_dir)
+    central_config_path = foreman_config_path(central_data_dir)
     if central_responsibilities_dir is None:
         configured = os.getenv("FOREMAN_RESPONSIBILITIES_DIR")
         if configured:
@@ -132,10 +309,21 @@ def run(
         )
         raise typer.Exit(code=2)
     config = FactoryConfig.from_environment()
+    extensions: ExtensionManager | None = None
     try:
+        extensions = ExtensionManager(
+            data_dir=central_data_dir,
+            config_path=central_config_path,
+        )
+        activated = extensions.activate(config)
+        registrations = activated.responsibilities
         responsibilities = configured_registry(
             config,
             config_dir=central_responsibilities_dir,
+            additional=(item.implementation for item in registrations),
+            additional_configs={
+                item.implementation.id: item.definition for item in registrations
+            },
         )
         runtime = FactoryRuntime(
             repository=repo,
@@ -145,11 +333,20 @@ def run(
             event_sink=TerminalRenderer(console),
             responsibilities=responsibilities,
             router=JevResponsibilityRouter(timeout_seconds=config.jev_timeout_seconds),
+            routing_groups=activated.routing_groups,
+            active_extension_ids=activated.extension_ids,
+            extension_snapshot_revisions=dict(activated.snapshot_revisions),
         )
-    except ResponsibilityConfigError as error:
+    except (ExtensionError, ResponsibilityConfigError) as error:
+        if extensions is not None:
+            asyncio.run(extensions.close())
         console.print(str(error))
         raise typer.Exit(code=2) from error
-    status = _run_async(runtime)
+    try:
+        status = _run_async(runtime)
+    finally:
+        if extensions is not None:
+            asyncio.run(extensions.close())
     console.print(f"Run ID: [bold]{runtime.state.run_id}[/bold]")
     if status is not FactoryStatus.FINISHED:
         raise typer.Exit(code=1)

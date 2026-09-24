@@ -54,9 +54,15 @@ is persisted as `FOREMAN_ROUTED`. See
 Interactive workers started outside Foreman use an assistant-specific protocol adapter around a
 shared, single-event runtime. `foreman hook --client <adapter>` normalizes incoming events, keys
 bounded global state by client and native session ID, routes each submitted prompt from the
-packaged TOMLs, and applies the same observation, Jev model, responsibility, and policy components.
+built-in definitions and configured local extension snapshots, and applies the same observation,
+Jev model, responsibility, and policy components.
 It never creates repository-local run state. See
 [coding-assistant hooks and attached workers](hooks.md).
+
+Both managed and attached runtimes compose configured extensions from validated local snapshots
+before routing. Activation is local-only. Managed runs persist `EXTENSIONS_ACTIVATED` before
+`FOREMAN_ROUTED`; attached sessions pin extension IDs and snapshot revisions to prevent the active
+responsibility set from changing silently during a session. See [Extensions](extensions.md).
 
 ## Shutdown
 

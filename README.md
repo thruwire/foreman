@@ -55,6 +55,7 @@ conventional coding-agent harness.
 - [What Foreman is proving](docs/what-foreman-proves.md)
 - [Runtime and event flow](docs/runtime.md)
 - [Responsibility configuration and routing](docs/routing.md)
+- [Extensions](docs/extensions.md)
 - [Coding-assistant hooks and attached workers](docs/hooks.md)
 - [Live steering](docs/steering.md)
 - [Worker backends](docs/workers.md)
@@ -338,8 +339,9 @@ clients fail closed. The adapter normalizes events before they reach the shared 
 runtime and translates semantic outcomes back into client-specific hook JSON.
 
 Hook sessions are keyed by client plus its native `session_id` and stored globally under
-`~/.foreman/sessions/`, not in the target repository. The hook command intentionally uses only
-packaged TOML definitions in this phase. A Codex plugin is not included yet. See
+`~/.foreman/sessions/`, not in the target repository. Hooks compose built-in definitions with any
+configured extensions from validated local snapshots; they never authenticate or synchronize on
+the hook path. A Codex plugin is not included yet. See
 [coding-assistant hooks and attached workers](docs/hooks.md).
 
 ## Persistence and inspection
@@ -384,7 +386,8 @@ The most useful environment overrides are:
 | `FOREMAN_MAX_STEERS_PER_WORKER` | `1` | Steering attempts before stop/retry |
 | `FOREMAN_STEERING_GRACE_SECONDS` | `30` | Time to recover before another intervention |
 | `FOREMAN_RESPONSIBILITIES_DIR` | unset | Optional Foreman-wide responsibility overrides |
-| `FOREMAN_DATA_DIR` | `~/.foreman` | Global attached-worker session storage |
+| `FOREMAN_DATA_DIR` | `~/.foreman` | Global configuration, extension, and session data |
+| `FOREMAN_CONFIG` | `~/.foreman/config.toml` | Central extension configuration |
 | `FOREMAN_HOOK_SESSION_TTL_SECONDS` | `604800` | Inactive attached-session lifetime |
 
 Observation bounds and runtime limits remain typed `FactoryConfig` fields. Semantic minimums live

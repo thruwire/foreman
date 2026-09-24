@@ -21,6 +21,9 @@ class FactoryObservation(BaseModel):
     run_id: str
     factory_status: str
     iteration: int = Field(ge=0)
+    routing_bindings: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    active_extension_ids: list[str] = Field(default_factory=list)
+    extension_snapshot_revisions: dict[str, str] = Field(default_factory=dict)
     active_workers: list[dict[str, Any]]
     worker_history: list[dict[str, Any]]
     latest_worker_output: str
@@ -193,6 +196,9 @@ async def build_observation(
         run_id=state.run_id,
         factory_status=state.status.value,
         iteration=state.iteration,
+        routing_bindings=state.routing_bindings,
+        active_extension_ids=state.active_extension_ids,
+        extension_snapshot_revisions=state.extension_snapshot_revisions,
         active_workers=[_bounded_worker(worker, config.output_limit) for worker in active],
         worker_history=[_bounded_worker(worker, config.output_limit) for worker in history],
         latest_worker_output=(

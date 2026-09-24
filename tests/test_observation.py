@@ -65,3 +65,25 @@ async def test_observation_uses_responsibility_owned_instruction_paths(tmp_path)
 
     assert observation.agents_md_path == "PROJECT.md"
     assert observation.agents_md_instructions == "project-specific instructions"
+
+
+@pytest.mark.asyncio
+async def test_observation_includes_non_secret_routing_bindings(tmp_path) -> None:
+    state = FactoryState(
+        run_id="run-1",
+        job="job",
+        repository=str(tmp_path),
+        routing_bindings={"example.project": {"project_id": "project-123"}},
+        active_extension_ids=["example"],
+        extension_snapshot_revisions={"example": "revision-7"},
+    )
+    store = RunStore(tmp_path)
+    store.initialize(state)
+
+    observation = await ObservationBuilder(store, FactoryConfig()).build(state)
+
+    assert observation.routing_bindings == {
+        "example.project": {"project_id": "project-123"}
+    }
+    assert observation.active_extension_ids == ["example"]
+    assert observation.extension_snapshot_revisions == {"example": "revision-7"}

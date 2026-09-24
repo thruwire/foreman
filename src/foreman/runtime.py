@@ -29,7 +29,9 @@ from foreman.responsibilities import ResponsibilityRegistry, builtin_registry
 from foreman.routing import (
     ResponsibilityRouter,
     ResponsibilityRoutingError,
-    resolved_responsibility_ids,
+    RouteGroup,
+    grouped_responsibility_ids,
+    resolve_hierarchical_routing,
 )
 from foreman.steering import build_steering_message
 from foreman.workers import CodexAppServerWorker, CodexWorker, OpenCodeWorker, Worker
@@ -62,6 +64,9 @@ class FactoryRuntime:
         event_sink: EventSink | None = None,
         responsibilities: ResponsibilityRegistry | None = None,
         router: ResponsibilityRouter | None = None,
+        routing_groups: tuple[RouteGroup, ...] = (),
+        active_extension_ids: tuple[str, ...] = (),
+        extension_snapshot_revisions: dict[str, str] | None = None,
     ) -> None:
         self.repository = Path(repository).resolve()
         if not self.repository.is_dir():
@@ -75,7 +80,15 @@ class FactoryRuntime:
             responsibilities if responsibilities is not None else builtin_registry(self.config)
         )
         self.router = router
-        initial_ids = self.candidate_responsibilities.global_ids()
+        self.routing_groups = routing_groups
+        grouped_ids = grouped_responsibility_ids(
+            self.routing_groups, self.candidate_responsibilities
+        )
+        initial_ids = tuple(
+            responsibility_id
+            for responsibility_id in self.candidate_responsibilities.global_ids()
+            if responsibility_id not in grouped_ids
+        )
         self.responsibilities = self.candidate_responsibilities.routed(initial_ids)
         self.policy = FactoryPolicy(self.config, self.responsibilities)
         self.observer = ObservationBuilder(
@@ -96,6 +109,8 @@ class FactoryRuntime:
                 for responsibility in self.candidate_responsibilities.responsibilities
             ],
             active_responsibility_ids=list(initial_ids),
+            active_extension_ids=list(active_extension_ids),
+            extension_snapshot_revisions=dict(extension_snapshot_revisions or {}),
         )
         self._workers: dict[str, Worker] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
@@ -117,13 +132,20 @@ class FactoryRuntime:
     async def _route_work(self) -> None:
         if self.router is None:
             return
-        decision = await self.router.route(self.state.job, self.candidate_responsibilities)
-        active_ids = resolved_responsibility_ids(decision, self.candidate_responsibilities)
+        decision = await resolve_hierarchical_routing(
+            self.state.job,
+            self.candidate_responsibilities,
+            self.routing_groups,
+            self.router,
+        )
+        active_ids = decision.active_responsibility_ids
         try:
             self._activate_responsibilities(active_ids)
         except ValueError as error:
             raise ResponsibilityRoutingError(f"invalid routing decision: {error}") from error
         self.state.routing_scores = dict(decision.scores)
+        self.state.routing_bindings = decision.bindings
+        self.state.routing_trace = [item.model_dump(mode="json") for item in decision.trace]
         self.state.touch()
         self.store.save_state(self.state)
         await self.emit(
@@ -478,6 +500,15 @@ class FactoryRuntime:
             {"job": self.state.job, "repository": self.state.repository},
             notify_foreman=False,
         )
+        if self.state.active_extension_ids:
+            await self.emit(
+                EventType.EXTENSIONS_ACTIVATED,
+                {
+                    "extension_ids": self.state.active_extension_ids,
+                    "snapshot_revisions": self.state.extension_snapshot_revisions,
+                },
+                notify_foreman=False,
+            )
         try:
             await self._route_work()
             await self.start_worker(WorkerType.CODING)
