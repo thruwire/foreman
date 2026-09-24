@@ -173,3 +173,53 @@ def test_initialize_locally_excludes_runtime_directory(state, tmp_path) -> None:
     ).stdout
     assert ".foreman" not in status
     assert "/.foreman/" in (tmp_path / ".git" / "info" / "exclude").read_text()
+
+
+def test_initialize_locally_excludes_runtime_directory_in_linked_worktree(state, tmp_path) -> None:
+    primary = tmp_path / "primary"
+    primary.mkdir()
+    subprocess.run(["git", "init", "-q", str(primary)], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(primary),
+            "-c",
+            "user.name=Foreman tests",
+            "-c",
+            "user.email=foreman-tests@example.invalid",
+            "commit",
+            "--allow-empty",
+            "-q",
+            "-m",
+            "seed",
+        ],
+        check=True,
+    )
+    linked = tmp_path / "linked"
+    subprocess.run(
+        ["git", "-C", str(primary), "worktree", "add", "--quiet", "--detach", str(linked)],
+        check=True,
+    )
+
+    linked_state = state.model_copy(update={"repository": str(linked)})
+    store = RunStore(linked)
+    store.initialize(linked_state)
+    status = subprocess.run(
+        ["git", "-C", str(linked), "status", "--short", "--untracked-files=all"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    exclude = subprocess.run(
+        ["git", "-C", str(linked), "rev-parse", "--git-path", "info/exclude"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    exclude_path = Path(exclude)
+    if not exclude_path.is_absolute():
+        exclude_path = linked / exclude_path
+
+    assert ".foreman" not in status
+    assert "/.foreman/" in exclude_path.read_text(encoding="utf-8")

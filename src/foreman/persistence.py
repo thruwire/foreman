@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 from collections.abc import Iterable
 from pathlib import Path
@@ -38,7 +39,21 @@ class RunStore:
     def _ensure_local_git_exclude(self) -> None:
         """Keep runtime state out of status without changing the repository's tracked files."""
 
-        exclude = self.repository / ".git" / "info" / "exclude"
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(self.repository), "rev-parse", "--git-path", "info/exclude"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return
+        if result.returncode != 0 or not result.stdout.strip():
+            return
+        exclude = Path(result.stdout.strip())
+        if not exclude.is_absolute():
+            exclude = self.repository / exclude
         if not exclude.parent.is_dir():
             return
         entry = "/.foreman/"
