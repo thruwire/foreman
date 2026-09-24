@@ -4,7 +4,7 @@ import asyncio
 import json
 import os
 import sys
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -413,26 +413,42 @@ def inspect_run(
 
     store = RunStore(repo)
     try:
-        state = store.load_state(run_id)
         events = store.load_events(run_id)
     except PersistenceError as error:
         console.print(str(error))
         raise typer.Exit(code=2) from error
 
-    finished = state.finished_at or state.updated_at
-    duration = max(0.0, (finished - state.started_at).total_seconds())
-    console.print(f"[bold]FOREMAN RUN: {state.run_id}[/bold]")
-    console.print("Job:")
-    console.print(state.job)
-    console.print(f"Duration: {duration_label(duration)}")
-    console.print(f"Workers: {len(state.workers)}")
-    console.print(f"Evaluations: {len(state.result_history)}")
-    if state.active_responsibility_ids:
-        console.print(f"Responsibilities: {', '.join(state.active_responsibility_ids)}")
-    console.print(f"Result: {state.status.value}")
+    try:
+        state = store.load_state(run_id)
+    except PersistenceError:
+        state = None
+
+    if state is not None:
+        finished = state.finished_at or state.updated_at
+        duration = max(0.0, (finished - state.started_at).total_seconds())
+        console.print(f"[bold]FOREMAN RUN: {state.run_id}[/bold]")
+        console.print("Job:")
+        console.print(state.job)
+        console.print(f"Duration: {duration_label(duration)}")
+        console.print(f"Workers: {len(state.workers)}")
+        console.print(f"Evaluations: {len(state.result_history)}")
+        if state.active_responsibility_ids:
+            console.print(f"Responsibilities: {', '.join(state.active_responsibility_ids)}")
+        console.print(f"Result: {state.status.value}")
+        started_at = state.started_at
+    else:
+        started_at = events[0].timestamp if events else datetime.now(UTC)
+        duration = (
+            max(0.0, (events[-1].timestamp - started_at).total_seconds())
+            if len(events) > 1
+            else 0.0
+        )
+        console.print(f"[bold]FOREMAN RUN: {run_id}[/bold]")
+        console.print(f"Duration: {duration_label(duration)}")
+        console.print(f"Events: {len(events)}")
 
     for event in events:
-        offset = (event.timestamp - state.started_at).total_seconds()
+        offset = (event.timestamp - started_at).total_seconds()
         prefix = elapsed_label(offset)
         payload = event.payload
         if event.event_type is EventType.FACTORY_STARTED:
@@ -479,6 +495,17 @@ def inspect_run(
                 console.print(f"       {label:<16} {float(assessment[key]):.2f}")
         elif event.event_type is EventType.FOREMAN_INTERVENED:
             console.print(f"       {payload.get('action')}: {payload.get('reason', '')}")
+        elif event.event_type is EventType.FOREMAN_DECIDED:
+            status = "answered" if payload.get("answered") else "abstained"
+            console.print(f"{prefix}  Foreman decided: {status}")
+            if payload.get("question"):
+                q = str(payload.get("question")).replace("\n", " ")
+                console.print(f"       question: {q[:80] + '...' if len(q) > 80 else q}")
+            console.print(f"       choice: {payload.get('choice')}")
+            console.print(f"       confidence: {float(payload.get('confidence', 0.0)):.2f}")
+            if payload.get("rationale"):
+                r = str(payload.get("rationale")).replace("\n", " ")
+                console.print(f"       rationale: {r[:100] + '...' if len(r) > 100 else r}")
         elif event.event_type in {EventType.WORKER_STEERED, EventType.WORKER_STEER_FAILED}:
             label = "steered" if event.event_type is EventType.WORKER_STEERED else "steer failed"
             console.print(f"{prefix}  {payload.get('worker_id')} {label}")

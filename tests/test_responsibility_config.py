@@ -22,7 +22,7 @@ def write_config(tmp_path, responsibility_id: str, contents: str) -> None:
 def test_packaged_config_uses_all_builtin_defaults() -> None:
     registry = configured_registry(FactoryConfig())
 
-    assert len(registry.responsibilities) == 6
+    assert len(registry.responsibilities) == 7
     assert registry.global_ids() == tuple(
         item.id for item in registry.responsibilities if item.id != "quality.documentation"
     )
@@ -33,6 +33,7 @@ def test_packaged_config_uses_all_builtin_defaults() -> None:
         "core.worker-health.toml",
         "quality.documentation.toml",
         "repository.instructions.toml",
+        "supervision.decision-policy.toml",
     ]
     completion = next(item for item in registry.responsibilities if item.id == "core.completion")
     assert [check.check_id for check in completion.checks()] == [

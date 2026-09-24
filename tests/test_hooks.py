@@ -79,6 +79,7 @@ class StubModel:
             "agents_md_drift": 0.0,
             "needs_human": 0.0,
             "documentation_sufficient": 0.2,
+            "decision-required": 0.0,
         }
         defaults.update(self.scores)
         grouped = {}

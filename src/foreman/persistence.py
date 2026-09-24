@@ -8,7 +8,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from foreman.models import FactoryAssessment, FactoryEvent, FactoryState
+from foreman.models import EventType, FactoryAssessment, FactoryEvent, FactoryState
 
 
 class PersistenceError(RuntimeError):
@@ -150,6 +150,34 @@ class RunStore:
             except PersistenceError:
                 continue
         return states
+
+    def list_run_ids(self) -> list[str]:
+        if not self.runs_dir.exists():
+            return []
+        paths = sorted(
+            [
+                path
+                for path in self.runs_dir.iterdir()
+                if path.is_dir() and not path.name.startswith(".")
+            ],
+            key=lambda item: (item.stat().st_mtime, item.name),
+            reverse=True,
+        )
+        return [path.name for path in paths]
+
+    def load_decision_events(self, run_id: str | None = None) -> list[FactoryEvent]:
+        """Load FOREMAN_DECIDED events for one run or across all runs in this store."""
+        target_ids = [run_id] if run_id is not None else self.list_run_ids()
+        events: list[FactoryEvent] = []
+        for rid in target_ids:
+            try:
+                run_events = self.load_events(rid, tolerate_malformed=True)
+            except PersistenceError:
+                continue
+            for event in run_events:
+                if event.event_type is EventType.FOREMAN_DECIDED:
+                    events.append(event)
+        return sorted(events, key=lambda event: event.timestamp)
 
     def recent_event_dicts(self, run_id: str, limit: int) -> list[dict[str, object]]:
         events = self.load_events(run_id, tolerate_malformed=True)[-limit:]

@@ -16,6 +16,7 @@ WORKER_HEALTH = "core.worker-health"
 REPOSITORY_INSTRUCTIONS = "repository.instructions"
 HUMAN_ESCALATION = "core.human-escalation"
 DOCUMENTATION = "quality.documentation"
+DECISION_POLICY = "supervision.decision-policy"
 
 
 @dataclass(slots=True, kw_only=True)
@@ -334,6 +335,10 @@ _SETTING_FIELDS = {
     HUMAN_ESCALATION: {},
     REPOSITORY_INSTRUCTIONS: {},
     DOCUMENTATION: {},
+    DECISION_POLICY: {
+        "decision_threshold": "decision_threshold",
+        "always_abstain": "always_abstain",
+    },
     WORKER_HEALTH: {
         "steering_enabled": "steering_enabled",
         "max_steers_per_worker": "max_steers_per_worker",
@@ -397,6 +402,10 @@ def builtin_registry(
     all_checks = tuple(
         check for configured_checks in checks.values() for check in configured_checks
     )
+    # Imported here to avoid a module-level cycle: decision.py builds on the
+    # builtin responsibility base, and builtin_registry is its only consumer.
+    from foreman.responsibilities.decision import DecisionPolicyResponsibility
+
     responsibilities = [
         HumanEscalationResponsibility(
             _responsibility_config(config, HUMAN_ESCALATION, configured.get(HUMAN_ESCALATION, {}))
@@ -432,6 +441,11 @@ def builtin_registry(
             _responsibility_config(config, VERIFICATION, configured.get(VERIFICATION, {}))
         )
         .configured_checks(checks.get(VERIFICATION, ()))
+        .configured_minimums(all_checks),
+        DecisionPolicyResponsibility(
+            _responsibility_config(config, DECISION_POLICY, configured.get(DECISION_POLICY, {}))
+        )
+        .configured_checks(checks.get(DECISION_POLICY, ()))
         .configured_minimums(all_checks),
     ]
     return ResponsibilityRegistry(responsibilities, routes=routes)
