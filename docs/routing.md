@@ -86,5 +86,10 @@ For a real `foreman run`:
 
 Malformed configuration or routing output fails before a worker starts. Managed runs route their
 initial job once. Attached workers handled through `foreman hook` route every normalized
-`work_submitted` event, using packaged TOMLs only; see
+`work_submitted` event, using built-in definitions and configured local extension snapshots; see
 [coding-assistant hooks and attached workers](hooks.md).
+
+Configured extensions can add namespaced responsibility implementations and hierarchical route
+groups. A matching group may expose cached child candidates such as projects, then route into the
+responsibilities beneath every matching child or the single `best_match` child. Group bindings and
+the complete route trace are persisted with the routing decision. See [Extensions](extensions.md).

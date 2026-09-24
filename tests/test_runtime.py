@@ -55,14 +55,20 @@ async def test_worker_events_reach_foreman_and_intervention_reaches_worker(tmp_p
         ),
         worker_factory=lambda _: FakeWorker(wait_forever=True, output_lines=[]),
         event_sink=sink.append,
+        active_extension_ids=("example",),
+        extension_snapshot_revisions={"example": "revision-1"},
     )
     state = await runtime.run()
     assert state.status is FactoryStatus.ESCALATED
     types = [event.event_type for event in sink]
     assert EventType.WORKER_STARTED in types
+    assert EventType.EXTENSIONS_ACTIVATED in types
+    assert types.index(EventType.EXTENSIONS_ACTIVATED) < types.index(EventType.WORKER_STARTED)
     assert EventType.FOREMAN_ASSESSED in types
     assert EventType.FOREMAN_INTERVENED in types
     assert runtime.state.workers[0].termination_reason == "factory escalated"
+    assert state.active_extension_ids == ["example"]
+    assert state.extension_snapshot_revisions == {"example": "revision-1"}
 
 
 def test_runtime_rejects_missing_repository(tmp_path) -> None:

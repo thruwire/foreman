@@ -18,7 +18,10 @@ from foreman.responsibilities import Check, ResponsibilityRegistry, Responsibili
 from foreman.routing import (
     JevResponsibilityRouter,
     ResponsibilityRoutingError,
+    RouteGroup,
+    RouteSelection,
     RoutingDecision,
+    resolve_hierarchical_routing,
 )
 from foreman.runtime import FactoryRuntime
 from foreman.workers import FakeWorker
@@ -47,9 +50,16 @@ class RoutedResponsibility:
 
 
 class Client:
-    def __init__(self, scores: dict[str, float], *, delay: float = 0.0) -> None:
+    def __init__(
+        self,
+        scores: dict[str, float],
+        *,
+        delay: float = 0.0,
+        prefix: str = "responsibility",
+    ) -> None:
         self.scores = scores
         self.delay = delay
+        self.prefix = prefix
         self.calls = []
 
     async def system_one(self, **kwargs):
@@ -57,7 +67,7 @@ class Client:
         await asyncio.sleep(self.delay)
         return SimpleNamespace(
             nouls={
-                f"responsibility__{responsibility_id}": SimpleNamespace(noul=score)
+                f"{self.prefix}__{responsibility_id}": SimpleNamespace(noul=score)
                 for responsibility_id, score in self.scores.items()
             }
         )
@@ -132,6 +142,198 @@ async def test_router_translates_timeout() -> None:
     with pytest.raises(ResponsibilityRoutingError, match="timed out"):
         await JevResponsibilityRouter(client=Client({}, delay=1), timeout_seconds=0.01).route(
             "work", registry
+        )
+
+
+@pytest.mark.asyncio
+async def test_jev_router_scores_route_groups_with_separate_keys() -> None:
+    client = Client({"example.group": 0.91}, prefix="group")
+    router = JevResponsibilityRouter(client=client)
+
+    decision = await router.route_groups(
+        "work",
+        {
+            "example.group": ResponsibilityRoute(
+                always=False,
+                instructions="Does this group apply?",
+                threshold=0.8,
+            )
+        },
+    )
+
+    assert decision.active_responsibility_ids == ["example.group"]
+    assert decision.scores == {"example.group": 0.91}
+    assert set(client.calls[0]["questions"]) == {"group__example.group"}
+
+
+class HierarchicalRouter:
+    def __init__(self, scores: dict[str, float]) -> None:
+        self.scores = scores
+        self.group_calls: list[list[str]] = []
+
+    async def route(self, work, candidates):
+        del work
+        active = list(candidates.global_ids())
+        scores = {}
+        for responsibility in candidates.responsibilities:
+            route = candidates.route_for(responsibility.id)
+            if route.always:
+                continue
+            score = self.scores[responsibility.id]
+            scores[responsibility.id] = score
+            if score >= route.threshold:
+                active.append(responsibility.id)
+        return RoutingDecision(active_responsibility_ids=active, scores=scores)
+
+    async def route_groups(self, work, groups):
+        del work
+        self.group_calls.append(list(groups))
+        active = []
+        scores = {}
+        for group_id, route in groups.items():
+            if route.always:
+                active.append(group_id)
+                continue
+            score = self.scores[group_id]
+            scores[group_id] = score
+            if score >= route.threshold:
+                active.append(group_id)
+        return RoutingDecision(active_responsibility_ids=active, scores=scores)
+
+    async def close(self):
+        return None
+
+
+@pytest.mark.asyncio
+async def test_hierarchical_routing_selects_project_locally_and_preserves_globals() -> None:
+    responsibilities = ResponsibilityRegistry(
+        [
+            RoutedResponsibility("core.global", "", always=True),
+            RoutedResponsibility("example.review", "", always=True),
+            RoutedResponsibility("example.alpha-policy", "", always=True),
+            RoutedResponsibility("example.beta-policy", "", always=True),
+        ]
+    )
+    groups = (
+        RouteGroup(
+            id="example.root",
+            route=ResponsibilityRoute(
+                always=False,
+                instructions="Does this work require the example extension?",
+                threshold=0.7,
+            ),
+            responsibility_ids=("example.review",),
+            child_selection=RouteSelection.BEST_MATCH,
+            children=(
+                RouteGroup(
+                    id="example.project-alpha",
+                    route=ResponsibilityRoute(
+                        always=False,
+                        instructions="Does this work belong to project alpha?",
+                        threshold=0.6,
+                    ),
+                    responsibility_ids=("example.alpha-policy",),
+                    bindings={"project_id": "alpha"},
+                ),
+                RouteGroup(
+                    id="example.project-beta",
+                    route=ResponsibilityRoute(
+                        always=False,
+                        instructions="Does this work belong to project beta?",
+                        threshold=0.6,
+                    ),
+                    responsibility_ids=("example.beta-policy",),
+                    bindings={"project_id": "beta"},
+                ),
+            ),
+        ),
+    )
+    router = HierarchicalRouter(
+        {
+            "example.root": 0.95,
+            "example.project-alpha": 0.91,
+            "example.project-beta": 0.82,
+        }
+    )
+
+    decision = await resolve_hierarchical_routing(
+        "Change project alpha",
+        responsibilities,
+        groups,
+        router,
+    )
+
+    assert decision.active_responsibility_ids == [
+        "core.global",
+        "example.review",
+        "example.alpha-policy",
+    ]
+    assert decision.bindings == {
+        "example.project-alpha": {"project_id": "alpha"},
+    }
+    assert [entry.group_id for entry in decision.trace if entry.selected] == [
+        "example.root",
+        "example.project-alpha",
+    ]
+    assert router.group_calls == [
+        ["example.root"],
+        ["example.project-alpha", "example.project-beta"],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_hierarchical_routing_activates_every_matching_branch_by_default() -> None:
+    responsibilities = ResponsibilityRegistry(
+        [
+            RoutedResponsibility("example.alpha", "", always=True),
+            RoutedResponsibility("example.beta", "", always=True),
+        ]
+    )
+    groups = (
+        RouteGroup(
+            id="example.alpha-group",
+            route=ResponsibilityRoute(always=False, instructions="Alpha?", threshold=0.5),
+            responsibility_ids=("example.alpha",),
+        ),
+        RouteGroup(
+            id="example.beta-group",
+            route=ResponsibilityRoute(always=False, instructions="Beta?", threshold=0.5),
+            responsibility_ids=("example.beta",),
+        ),
+    )
+    router = HierarchicalRouter(
+        {"example.alpha-group": 0.8, "example.beta-group": 0.9}
+    )
+
+    decision = await resolve_hierarchical_routing("Both", responsibilities, groups, router)
+
+    assert decision.active_responsibility_ids == ["example.alpha", "example.beta"]
+
+
+@pytest.mark.asyncio
+async def test_hierarchical_routing_rejects_duplicate_responsibility_assignment() -> None:
+    responsibilities = ResponsibilityRegistry(
+        [RoutedResponsibility("example.shared", "", always=True)]
+    )
+    groups = (
+        RouteGroup(
+            id="example.one",
+            route=ResponsibilityRoute(always=True),
+            responsibility_ids=("example.shared",),
+        ),
+        RouteGroup(
+            id="example.two",
+            route=ResponsibilityRoute(always=True),
+            responsibility_ids=("example.shared",),
+        ),
+    )
+
+    with pytest.raises(ResponsibilityRoutingError, match="only one routing group"):
+        await resolve_hierarchical_routing(
+            "work",
+            responsibilities,
+            groups,
+            HierarchicalRouter({}),
         )
 
 

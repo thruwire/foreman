@@ -56,7 +56,7 @@ def test_legacy_assessment_state_is_migrated_on_read(state, tmp_path) -> None:
 
     restored = store.load_state(state.run_id)
 
-    assert restored.schema_version == 3
+    assert restored.schema_version == 4
     assert restored.latest_result is not None
     assert restored.latest_result.probability("core.completion", "implementation_complete") == 0.8
     assert len(restored.result_history) == 1
@@ -75,10 +75,14 @@ def test_v2_result_state_gains_routing_fields_on_read(state, tmp_path) -> None:
 
     restored = store.load_state(state.run_id)
 
-    assert restored.schema_version == 3
+    assert restored.schema_version == 4
     assert restored.candidate_responsibility_ids == []
     assert restored.active_responsibility_ids == []
     assert restored.routing_scores == {}
+    assert restored.routing_bindings == {}
+    assert restored.routing_trace == []
+    assert restored.active_extension_ids == []
+    assert restored.extension_snapshot_revisions == {}
 
 
 def test_state_write_leaves_no_temporary_file(state, tmp_path) -> None:

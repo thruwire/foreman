@@ -14,6 +14,7 @@ foreman hook --client <adapter>
           │
           ├── normalize to a Foreman hook event
           ├── packaged responsibility TOMLs
+          ├── configured extensions from local snapshots
           ├── Jev routing and checks
           ├── local Git and AGENTS.md evidence
           └── global attached-session state
@@ -79,10 +80,12 @@ state directory during development and testing.
 
 ## Responsibility configuration
 
-The hook runtime deliberately loads only the TOML files packaged under
-`src/foreman/responsibilities/definitions/`. It does not read target-repository responsibility
-files, `FOREMAN_RESPONSIBILITIES_DIR`, downloaded configuration, or remote responsibility sources.
+The hook runtime loads the TOML files packaged under
+`src/foreman/responsibilities/definitions/` plus explicitly configured, installed extensions from
+their validated local snapshots. It does not read target-repository responsibility files or
+`FOREMAN_RESPONSIBILITIES_DIR`.
 
-ThruWire authentication and configuration extension are a later phase. Coding-assistant plugin
-packaging is also separate; this command establishes the process protocol that a future plugin can
-invoke.
+Hook processing never authenticates or synchronizes an extension. Those are explicit extension
+lifecycle operations outside the latency-sensitive hook path. See [Extensions](extensions.md).
+Coding-assistant plugin packaging remains separate; this command establishes the process protocol
+that a future plugin can invoke.

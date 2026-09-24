@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import tomllib
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -169,10 +169,19 @@ def configured_registry(
     *,
     config_dir: Path | str | None = None,
     additional: Iterable[Responsibility] = (),
+    additional_configs: Mapping[str, ResponsibilityFileConfig] | None = None,
 ) -> ResponsibilityRegistry:
     """Build candidates from installed implementations and central Foreman configuration."""
 
     configurations = load_responsibility_configs(config_dir)
+    contributed = dict(additional_configs or {})
+    conflicts = set(configurations) & set(contributed)
+    if conflicts:
+        raise ResponsibilityConfigError(
+            "extension responsibility definitions conflict with central configuration: "
+            f"{', '.join(sorted(conflicts))}"
+        )
+    configurations.update(contributed)
     configured_checks = {
         responsibility_id: config.configured_checks(responsibility_id)
         for responsibility_id, config in configurations.items()

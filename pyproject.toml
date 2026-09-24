@@ -11,6 +11,7 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Foreman contributors" }]
 dependencies = [
+  "keyring>=25,<27",
   "pydantic>=2.7,<3",
   "python-dotenv>=1.0,<2",
   "rich>=13.7,<15",
