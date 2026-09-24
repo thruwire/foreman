@@ -84,5 +84,7 @@ For a real `foreman run`:
 6. The selected TOML definitions provide Jev checks; their Python classes propose directives.
 7. Only then does Foreman start the first worker.
 
-Malformed configuration or routing output fails before a worker starts. Routing subsequent user
-messages is not part of this release.
+Malformed configuration or routing output fails before a worker starts. Managed runs route their
+initial job once. Attached workers handled through `foreman hook` route every normalized
+`work_submitted` event, using packaged TOMLs only; see
+[coding-assistant hooks and attached workers](hooks.md).

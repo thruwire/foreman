@@ -55,6 +55,7 @@ conventional coding-agent harness.
 - [What Foreman is proving](docs/what-foreman-proves.md)
 - [Runtime and event flow](docs/runtime.md)
 - [Responsibility configuration and routing](docs/routing.md)
+- [Coding-assistant hooks and attached workers](docs/hooks.md)
 - [Live steering](docs/steering.md)
 - [Worker backends](docs/workers.md)
 
@@ -320,6 +321,27 @@ foreman demo --repo .
 It needs no API key, network, coding-agent CLI, or external repository. The sequence progresses from
 continued implementation, through independent verification, to `FINISH`.
 
+## Attached coding-assistant workers
+
+`foreman hook` accepts one lifecycle event as JSON on stdin and writes the selected assistant's
+hook JSON to stdout. It lets Foreman supervise an interactive session that a human started, rather
+than only workers launched by `foreman run`:
+
+```bash
+printf '%s\n' '{"session_id":"thr_123","cwd":"/workspace/project","hook_event_name":"SessionStart","source":"startup"}' \
+  | foreman hook --client codex
+```
+
+The explicit `--client` selects a protocol adapter; `codex` is currently the only adapter and
+the compatibility default. Foreman does not infer a client from arbitrary JSON, and unknown
+clients fail closed. The adapter normalizes events before they reach the shared attached-worker
+runtime and translates semantic outcomes back into client-specific hook JSON.
+
+Hook sessions are keyed by client plus its native `session_id` and stored globally under
+`~/.foreman/sessions/`, not in the target repository. The hook command intentionally uses only
+packaged TOML definitions in this phase. A Codex plugin is not included yet. See
+[coding-assistant hooks and attached workers](docs/hooks.md).
+
 ## Persistence and inspection
 
 Each repository gets local, ignored state:
@@ -362,6 +384,8 @@ The most useful environment overrides are:
 | `FOREMAN_MAX_STEERS_PER_WORKER` | `1` | Steering attempts before stop/retry |
 | `FOREMAN_STEERING_GRACE_SECONDS` | `30` | Time to recover before another intervention |
 | `FOREMAN_RESPONSIBILITIES_DIR` | unset | Optional Foreman-wide responsibility overrides |
+| `FOREMAN_DATA_DIR` | `~/.foreman` | Global attached-worker session storage |
+| `FOREMAN_HOOK_SESSION_TTL_SECONDS` | `604800` | Inactive attached-session lifetime |
 
 Observation bounds and runtime limits remain typed `FactoryConfig` fields. Semantic minimums live
 beside their checks in the central responsibility TOMLs. Other central settings can configure only

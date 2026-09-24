@@ -50,6 +50,29 @@ class GlobalResponsibilityRouter:
         return None
 
 
+def resolved_responsibility_ids(
+    decision: RoutingDecision,
+    candidates: ResponsibilityRegistry,
+) -> list[str]:
+    """Validate a routing decision and return ordered matches plus global responsibilities."""
+
+    candidate_ids = {responsibility.id for responsibility in candidates.responsibilities}
+    requested_ids = set(decision.active_responsibility_ids)
+    unknown_ids = requested_ids - candidate_ids
+    unknown_scores = set(decision.scores) - candidate_ids
+    if unknown_ids or unknown_scores:
+        unknown = ", ".join(sorted(unknown_ids | unknown_scores))
+        raise ResponsibilityRoutingError(
+            f"routing decision references unknown responsibilities: {unknown}"
+        )
+    requested_ids.update(candidates.global_ids())
+    return [
+        responsibility.id
+        for responsibility in candidates.responsibilities
+        if responsibility.id in requested_ids
+    ]
+
+
 def _routing_key(responsibility_id: str) -> str:
     return f"responsibility__{responsibility_id}"
 
