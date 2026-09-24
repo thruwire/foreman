@@ -98,6 +98,9 @@ def _bounded_worker(worker: WorkerRecord, output_limit: int) -> dict[str, Any]:
         "stdout_tail": _tail(worker.stdout, output_limit),
         "stderr_tail": _tail(worker.stderr, output_limit),
         "termination_reason": worker.termination_reason,
+        "client": worker.client,
+        "client_session_id": worker.client_session_id,
+        "client_turn_id": worker.client_turn_id,
         "codex_thread_id": worker.codex_thread_id,
         "codex_turn_id": worker.codex_turn_id,
         "supports_steering": worker.supports_steering,
@@ -140,64 +143,80 @@ class ObservationBuilder:
         self.repository_instruction_files = repository_instruction_files
 
     async def build(self, state: FactoryState) -> FactoryObservation:
-        repository = Path(state.repository)
-        agents_md_path, agents_md_instructions = _repository_agents_md(
-            repository,
-            self.repository_instruction_files,
-            self.config.field_limit,
-        )
-        # Git evidence is independent, so gather it without serial subprocess latency.
-        status_task = asyncio.create_task(
-            _git(repository, "status", "--short", limit=self.config.field_limit)
-        )
-        diff_task = asyncio.create_task(
-            _git(repository, "diff", "--no-ext-diff", limit=self.config.diff_limit)
-        )
-        names_task = asyncio.create_task(
-            _git(repository, "diff", "--name-only", limit=self.config.field_limit)
-        )
-        git_status, git_diff, names = await asyncio.gather(status_task, diff_task, names_task)
-
-        active = [worker for worker in state.workers if worker.worker_id in state.active_workers]
-        history = state.workers[-self.config.worker_history_limit :]
-        latest = history[-1] if history else None
-        elapsed = max(0.0, (datetime.now(UTC) - state.started_at).total_seconds())
-
-        return FactoryObservation(
-            original_job=_tail(state.job, self.config.field_limit),
-            run_id=state.run_id,
-            factory_status=state.status.value,
-            iteration=state.iteration,
-            active_workers=[_bounded_worker(worker, self.config.output_limit) for worker in active],
-            worker_history=[
-                _bounded_worker(worker, self.config.output_limit) for worker in history
-            ],
-            latest_worker_output=(
-                _tail(f"{latest.stdout}\n{latest.stderr}", self.config.output_limit)
-                if latest
-                else ""
-            ),
-            worker_exit_status={worker.worker_id: worker.exit_code for worker in history},
-            worker_elapsed_seconds={
-                worker.worker_id: worker.duration_seconds or 0.0 for worker in active
-            },
-            git_status=git_status,
-            git_diff=git_diff,
-            changed_files=[line for line in names.splitlines() if line][
-                : self.config.worker_history_limit * 10
-            ],
-            agents_md_path=agents_md_path,
-            agents_md_instructions=agents_md_instructions,
-            test_results=[],
-            verification_results=[
-                result.model_dump(mode="json") for result in state.verification_results
-            ],
+        return await build_observation(
+            state,
+            self.config,
             recent_events=self.store.recent_event_dicts(
                 state.run_id, self.config.event_history_limit
             ),
-            previous_result=state.latest_result,
-            previous_intervention=state.latest_intervention,
-            attempts=len(state.workers),
-            failures=state.errors[-self.config.worker_history_limit :],
-            elapsed_factory_seconds=elapsed,
+            repository_instruction_files=self.repository_instruction_files,
         )
+
+
+async def build_observation(
+    state: FactoryState,
+    config: FactoryConfig,
+    *,
+    recent_events: list[dict[str, Any]],
+    repository_instruction_files: tuple[str, ...] = (
+        "AGENTS.override.md",
+        "AGENTS.md",
+    ),
+) -> FactoryObservation:
+    """Build an observation from either a managed run or an attached-worker session."""
+
+    repository = Path(state.repository)
+    agents_md_path, agents_md_instructions = _repository_agents_md(
+        repository,
+        repository_instruction_files,
+        config.field_limit,
+    )
+    # Git evidence is independent, so gather it without serial subprocess latency.
+    status_task = asyncio.create_task(
+        _git(repository, "status", "--short", limit=config.field_limit)
+    )
+    diff_task = asyncio.create_task(
+        _git(repository, "diff", "--no-ext-diff", limit=config.diff_limit)
+    )
+    names_task = asyncio.create_task(
+        _git(repository, "diff", "--name-only", limit=config.field_limit)
+    )
+    git_status, git_diff, names = await asyncio.gather(status_task, diff_task, names_task)
+
+    active = [worker for worker in state.workers if worker.worker_id in state.active_workers]
+    history = state.workers[-config.worker_history_limit :]
+    latest = history[-1] if history else None
+    elapsed = max(0.0, (datetime.now(UTC) - state.started_at).total_seconds())
+
+    return FactoryObservation(
+        original_job=_tail(state.job, config.field_limit),
+        run_id=state.run_id,
+        factory_status=state.status.value,
+        iteration=state.iteration,
+        active_workers=[_bounded_worker(worker, config.output_limit) for worker in active],
+        worker_history=[_bounded_worker(worker, config.output_limit) for worker in history],
+        latest_worker_output=(
+            _tail(f"{latest.stdout}\n{latest.stderr}", config.output_limit) if latest else ""
+        ),
+        worker_exit_status={worker.worker_id: worker.exit_code for worker in history},
+        worker_elapsed_seconds={
+            worker.worker_id: worker.duration_seconds or 0.0 for worker in active
+        },
+        git_status=git_status,
+        git_diff=git_diff,
+        changed_files=[line for line in names.splitlines() if line][
+            : config.worker_history_limit * 10
+        ],
+        agents_md_path=agents_md_path,
+        agents_md_instructions=agents_md_instructions,
+        test_results=[],
+        verification_results=[
+            result.model_dump(mode="json") for result in state.verification_results
+        ],
+        recent_events=recent_events[-config.event_history_limit :],
+        previous_result=state.latest_result,
+        previous_intervention=state.latest_intervention,
+        attempts=len(state.workers),
+        failures=state.errors[-config.worker_history_limit :],
+        elapsed_factory_seconds=elapsed,
+    )

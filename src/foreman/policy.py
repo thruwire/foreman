@@ -13,6 +13,7 @@ class FactoryPolicy:
 
     config: FactoryConfig
     responsibilities: ResponsibilityRegistry | None = None
+    enforce_iteration_limit: bool = True
 
     def __post_init__(self) -> None:
         if self.responsibilities is None:
@@ -40,7 +41,7 @@ class FactoryPolicy:
         proposed = self.responsibilities.directives(state, result)
 
         # Hard iteration limits remain a runtime invariant, not responsibility semantics.
-        if state.iteration >= state.max_iterations:
+        if self.enforce_iteration_limit and state.iteration >= state.max_iterations:
             proposed.append(
                 self._runtime_directive(
                     state,

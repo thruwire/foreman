@@ -51,6 +51,13 @@ evaluated together in one Jev call, and every threshold match is activated. The 
 is persisted as `FOREMAN_ROUTED`. See
 [Responsibility configuration and routing](routing.md).
 
+Interactive workers started outside Foreman use an assistant-specific protocol adapter around a
+shared, single-event runtime. `foreman hook --client <adapter>` normalizes incoming events, keys
+bounded global state by client and native session ID, routes each submitted prompt from the
+packaged TOMLs, and applies the same observation, Jev model, responsibility, and policy components.
+It never creates repository-local run state. See
+[coding-assistant hooks and attached workers](hooks.md).
+
 ## Shutdown
 
 Worker timeout, overall timeout, escalation, and cancellation first request `turn/interrupt`.

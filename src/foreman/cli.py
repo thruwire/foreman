@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import sys
 from datetime import UTC
 from pathlib import Path
 from typing import Annotated
@@ -13,6 +15,8 @@ from rich.table import Table
 
 from foreman.config import FactoryConfig
 from foreman.foreman import FakeForemanModel, JevForemanModel
+from foreman.hook_adapters import hook_adapter
+from foreman.hooks import AttachedSessionStore, AttachedWorkerRuntime, HookError, run_hook
 from foreman.models import EventType, FactoryStatus, WorkerType
 from foreman.persistence import PersistenceError, RunStore
 from foreman.responsibilities import (
@@ -26,7 +30,7 @@ from foreman.workers import FakeWorker
 
 app = typer.Typer(
     name="foreman",
-    help="Supervise Codex workers with a fast semantic decision loop.",
+    help="Supervise coding workers with a fast semantic decision loop.",
     no_args_is_help=True,
 )
 console = Console()
@@ -39,6 +43,58 @@ def _run_async(runtime: FactoryRuntime) -> FactoryStatus:
         console.print("\nFactory interrupted.")
         raise typer.Exit(code=130) from None
     return state.status
+
+
+@app.command()
+def hook(
+    client: Annotated[
+        str,
+        typer.Option(
+            "--client",
+            help="Coding-assistant hook protocol adapter",
+        ),
+    ] = "codex",
+    data_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--data-dir",
+            file_okay=False,
+            resolve_path=True,
+            help="Foreman-wide data directory for attached-worker sessions",
+        ),
+    ] = None,
+) -> None:
+    """Process one coding-assistant hook event from stdin."""
+
+    try:
+        payload = json.loads(sys.stdin.read())
+        if not isinstance(payload, dict):
+            raise HookError("hook input must be a JSON object")
+        adapter = hook_adapter(client)
+        event = adapter.parse(payload)
+        load_dotenv(override=False)
+        config = FactoryConfig.from_environment()
+        runtime = AttachedWorkerRuntime(
+            model=JevForemanModel(timeout_seconds=config.jev_timeout_seconds),
+            router=JevResponsibilityRouter(timeout_seconds=config.jev_timeout_seconds),
+            responsibilities=configured_registry(config),
+            config=config,
+            store=AttachedSessionStore(
+                data_dir,
+                ttl_seconds=config.hook_session_ttl_seconds,
+                lock_timeout_seconds=max(30.0, config.jev_timeout_seconds * 3),
+            ),
+        )
+        outcome = asyncio.run(run_hook(runtime, event))
+        output = adapter.render(event, outcome)
+    except (json.JSONDecodeError, HookError, ResponsibilityConfigError) as error:
+        typer.echo(f"foreman hook: {error}", err=True)
+        raise typer.Exit(code=2) from error
+    except Exception as error:
+        typer.echo(f"foreman hook failed: {type(error).__name__}: {error}", err=True)
+        raise typer.Exit(code=1) from error
+    sys.stdout.write(json.dumps(output, separators=(",", ":")))
+    sys.stdout.write("\n")
 
 
 @app.command()

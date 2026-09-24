@@ -26,7 +26,11 @@ from foreman.observation import ObservationBuilder
 from foreman.persistence import RunStore
 from foreman.policy import FactoryPolicy
 from foreman.responsibilities import ResponsibilityRegistry, builtin_registry
-from foreman.routing import ResponsibilityRouter, ResponsibilityRoutingError
+from foreman.routing import (
+    ResponsibilityRouter,
+    ResponsibilityRoutingError,
+    resolved_responsibility_ids,
+)
 from foreman.steering import build_steering_message
 from foreman.workers import CodexAppServerWorker, CodexWorker, OpenCodeWorker, Worker
 from foreman.workers.codex import mission_for
@@ -114,23 +118,7 @@ class FactoryRuntime:
         if self.router is None:
             return
         decision = await self.router.route(self.state.job, self.candidate_responsibilities)
-        candidate_ids = {
-            responsibility.id for responsibility in self.candidate_responsibilities.responsibilities
-        }
-        requested_ids = set(decision.active_responsibility_ids)
-        unknown_ids = requested_ids - candidate_ids
-        unknown_scores = set(decision.scores) - candidate_ids
-        if unknown_ids or unknown_scores:
-            unknown = ", ".join(sorted(unknown_ids | unknown_scores))
-            raise ResponsibilityRoutingError(
-                f"routing decision references unknown responsibilities: {unknown}"
-            )
-        requested_ids.update(self.candidate_responsibilities.global_ids())
-        active_ids = [
-            responsibility.id
-            for responsibility in self.candidate_responsibilities.responsibilities
-            if responsibility.id in requested_ids
-        ]
+        active_ids = resolved_responsibility_ids(decision, self.candidate_responsibilities)
         try:
             self._activate_responsibilities(active_ids)
         except ValueError as error:

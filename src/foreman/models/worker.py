@@ -35,6 +35,9 @@ class WorkerRecord(BaseModel):
     stdout: str = ""
     stderr: str = ""
     termination_reason: str | None = None
+    client: str | None = None
+    client_session_id: str | None = None
+    client_turn_id: str | None = None
     codex_thread_id: str | None = None
     codex_turn_id: str | None = None
     supports_steering: bool = False
