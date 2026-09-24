@@ -137,6 +137,12 @@ exec backend. Live steering into an active turn is only available with the Codex
 backend; other backends degrade to stop/retry. See [Worker backends](docs/workers.md) for the
 `Worker` protocol and how to add your own.
 
+### Decision policy
+
+The `supervision.decision-policy` responsibility lets `foreman serve` gate worker decisions
+automatically: bounded decision models, a tighten-only abstention policy, and an audit trail
+of every autonomous decision (`FOREMAN_DECIDED` events, rendered by `foreman inspect`).
+
 ## What Foreman watches
 
 Each observation is compact and bounded. It contains:

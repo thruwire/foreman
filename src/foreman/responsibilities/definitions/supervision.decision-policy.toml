@@ -1,0 +1,10 @@
+enabled = true
+always = true
+
+[checks.decision-required]
+instructions = """
+Is a worker decision required before proceeding — a multiple-choice question
+where the foreman could answer autonomously within policy, or must defer to
+the human?
+"""
+min_threshold = 0.70

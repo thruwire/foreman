@@ -6,6 +6,7 @@ from foreman.responsibilities.base import (
 )
 from foreman.responsibilities.builtin import (
     COMPLETION,
+    DECISION_POLICY,
     DOCUMENTATION,
     HUMAN_ESCALATION,
     REPOSITORY_INSTRUCTIONS,
@@ -27,9 +28,16 @@ from foreman.responsibilities.configuration import (
     load_responsibility_configs,
     responsibility_config_dir,
 )
+from foreman.responsibilities.decision import (
+    DECISION_REQUIRED,
+    DecisionPolicyResponsibility,
+    DecisionResolution,
+)
 
 __all__ = [
     "COMPLETION",
+    "DECISION_POLICY",
+    "DECISION_REQUIRED",
     "DOCUMENTATION",
     "HUMAN_ESCALATION",
     "REPOSITORY_INSTRUCTIONS",
@@ -38,6 +46,8 @@ __all__ = [
     "Check",
     "CheckFileConfig",
     "CompletionResponsibility",
+    "DecisionPolicyResponsibility",
+    "DecisionResolution",
     "DocumentationResponsibility",
     "HumanEscalationResponsibility",
     "RepositoryInstructionsResponsibility",
