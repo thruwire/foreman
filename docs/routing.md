@@ -67,6 +67,15 @@ min_threshold = 0.75
   instead of introducing responsibility-specific threshold setting names.
 - `[settings]` is interpreted and validated by the responsibility implementation.
 
+## Built-in responsibility settings
+
+`core.worker-health` additionally accepts `cold_start_grace_seconds` (default `0.0`,
+also `FOREMAN_COLD_START_GRACE_SECONDS`): while the active worker is younger than this
+window, worker health defers judgment with `CONTINUE` instead of steering or stopping it,
+because a freshly launched worker boots silently and streams no evidence until it starts
+working. A worker with no recorded start time is not treated as young. The default `0.0`
+disables the grace period.
+
 Completion and verification are required global lifecycle responsibilities. Other built-ins may
 be disabled or made conditional. Repository instruction paths are responsibility settings; they
 identify files to inspect inside each target repository, but the settings themselves remain

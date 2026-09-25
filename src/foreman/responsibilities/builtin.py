@@ -219,6 +219,18 @@ class WorkerHealthResponsibility(_CheckConfiguredResponsibility):
         if not candidates:
             return []
         confidence, reason = max(candidates, key=lambda item: item[0])
+        if self._within_cold_start_grace(state):
+            return [
+                _directive(
+                    state,
+                    responsibility_id=self.id,
+                    action=InterventionType.CONTINUE,
+                    reason="active worker is within the cold-start grace period",
+                    priority=900,
+                    worker_id=state.active_workers[0],
+                    confidence=confidence,
+                )
+            ]
         directive = _worker_warning(
             state,
             self.config,
@@ -227,6 +239,22 @@ class WorkerHealthResponsibility(_CheckConfiguredResponsibility):
             confidence=confidence,
         )
         return [directive] if directive is not None else []
+
+    def _within_cold_start_grace(self, state: FactoryState) -> bool:
+        """A freshly launched worker boots silently and streams no evidence until it
+        starts working, so it cannot be meaningfully judged stuck or off track yet.
+        While it is younger than the configured grace window, worker-health defers
+        judgment with CONTINUE instead of steering or stopping it. A worker with no
+        recorded start time is not treated as young: fail closed toward the
+        established behavior."""
+        grace = self.config.cold_start_grace_seconds
+        if grace <= 0.0 or not state.active_workers:
+            return False
+        worker = next(
+            item for item in state.workers if item.worker_id == state.active_workers[0]
+        )
+        age = worker.duration_seconds
+        return age is not None and age < grace
 
 
 @dataclass(slots=True)
@@ -338,6 +366,7 @@ _SETTING_FIELDS = {
         "steering_enabled": "steering_enabled",
         "max_steers_per_worker": "max_steers_per_worker",
         "steering_grace_seconds": "steering_grace_seconds",
+        "cold_start_grace_seconds": "cold_start_grace_seconds",
     },
     COMPLETION: {},
     VERIFICATION: {},
