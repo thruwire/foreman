@@ -72,6 +72,17 @@ be disabled or made conditional. Repository instruction paths are responsibility
 identify files to inspect inside each target repository, but the settings themselves remain
 central.
 
+## Score smoothing
+
+`score_smoothing_alpha` (default `1.0`, also `FOREMAN_SCORE_SMOOTHING_ALPHA`) enables an
+opt-in exponential moving average over the assessment scores each responsibility
+thresholds on. Semantic scores are produced independently per evaluation and can
+oscillate while the underlying work is stable; smoothing tracks genuine movement
+instead of noise. Each responsibility owns its smoother, so enabling it never mutates
+the shared assessment result and never couples one responsibility's decisions to
+another's. `alpha=1.0` disables smoothing: values pass through untouched and no state
+is recorded.
+
 ## Runtime flow
 
 For a real `foreman run`:
