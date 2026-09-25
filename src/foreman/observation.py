@@ -31,6 +31,7 @@ class FactoryObservation(BaseModel):
     worker_elapsed_seconds: dict[str, float]
     git_status: str
     git_diff: str
+    untracked_evidence: str = ""
     changed_files: list[str]
     agents_md_path: str | None = None
     agents_md_instructions: str = ""
@@ -130,6 +131,90 @@ async def _git(repository: Path, *args: str, limit: int) -> str:
     return _tail(output.decode("utf-8", errors="replace"), limit)
 
 
+_SENSITIVE_BASENAME_PARTS = ("secret", "token", "password", "passwd", "credential")
+_SENSITIVE_BASENAME_EXACT = {".env", "id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"}
+_SENSITIVE_SUFFIXES = (".pem", ".key", ".pfx", ".p12", ".jks", ".keystore")
+
+# Untracked files larger than this are never read; the byte budget below is the
+# real bound, this only avoids loading enormous files into memory.
+_UNTRACKED_MAX_STAT_BYTES = 1_000_000
+
+
+def _looks_sensitive(name: str) -> bool:
+    """Heuristic: never include content of files whose names suggest secrets."""
+    base = name.rsplit("/", 1)[-1].lower()
+    if base in _SENSITIVE_BASENAME_EXACT or base.startswith(".env."):
+        return True
+    if any(part in base for part in _SENSITIVE_BASENAME_PARTS):
+        return True
+    return base.endswith(_SENSITIVE_SUFFIXES)
+
+
+def _untracked_evidence(
+    repository: Path,
+    git_status: str,
+    *,
+    file_limit: int,
+    byte_limit: int,
+) -> str:
+    """Bounded head-of-content for untracked files named in git_status.
+
+    Workers write new tests and sources as untracked files, which `git diff`
+    never shows, leaving the supervisor without evidence of new work. Include
+    a bounded excerpt of each untracked text file so assessments can see it.
+
+    The bounds are hard: at most `file_limit` files and `byte_limit` bytes of
+    file content in total. Binary-looking and unreadable files are skipped,
+    symlinks are not followed, paths escaping the repository are ignored, and
+    files whose names look sensitive (secrets, keys, tokens, .env files) are
+    never included. Read-only: the repository is never mutated.
+    """
+    repo_root = repository.resolve()
+    paths: list[str] = []
+    for line in git_status.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("?? "):
+            continue
+        candidate = stripped[3:].strip().strip('"')
+        if not candidate or candidate.endswith("/") or _looks_sensitive(candidate):
+            continue
+        paths.append(candidate)
+    if not paths:
+        return ""
+
+    per_file = max(500, byte_limit // max(1, file_limit))
+    chunks: list[str] = []
+    collected = 0
+    for name in paths[:file_limit]:
+        remaining = byte_limit - collected
+        if remaining <= 0:
+            break
+        path = repo_root / name
+        try:
+            if path.is_symlink() or not path.is_file():
+                continue
+            resolved = path.resolve()
+            if resolved != repo_root and repo_root not in resolved.parents:
+                continue  # escapes the repository
+            if path.stat().st_size > _UNTRACKED_MAX_STAT_BYTES:
+                continue
+            raw = path.read_bytes()
+        except OSError:
+            continue
+        if b"\x00" in raw[:4096]:
+            continue  # binary
+        text = raw.decode("utf-8", errors="replace")
+        truncated = len(text) > per_file
+        excerpt = text[: min(per_file, remaining)]
+        if len(text) > len(excerpt):
+            truncated = True
+        if truncated:
+            excerpt += f"\n... (truncated, {len(text)} chars total)"
+        chunks.append(f"--- untracked: {name} ---\n{excerpt}")
+        collected += len(excerpt)
+    return "\n".join(chunks)
+
+
 class ObservationBuilder:
     def __init__(
         self,
@@ -210,6 +295,12 @@ async def build_observation(
         },
         git_status=git_status,
         git_diff=git_diff,
+        untracked_evidence=_untracked_evidence(
+            repository,
+            git_status,
+            file_limit=config.untracked_evidence_file_limit,
+            byte_limit=config.untracked_evidence_byte_limit,
+        ),
         changed_files=[line for line in names.splitlines() if line][
             : config.worker_history_limit * 10
         ],
