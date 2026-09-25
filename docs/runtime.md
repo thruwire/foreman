@@ -28,6 +28,19 @@ Codex App Server ─events─► FactoryRuntime ─snapshot─► ObservationBui
 Simulation classes implement the same model and worker protocols. They exist for the demo and
 offline tests; real runs default to Jev and Codex.
 
+## Opt-in runtime test verification
+
+When `verify_tests_on_complete` is set (`FOREMAN_VERIFY_TESTS_ON_COMPLETE=1`), the runtime runs
+the repository's pytest suite itself after a coding worker completes, bounded by
+`test_command_timeout` seconds (`FOREMAN_TEST_COMMAND_TIMEOUT`, default 120). This is
+evidence-gathering, not a gate: the outcome is emitted as a `TEST_RESULT` event with parsed
+`passed`/`failed`/`errored`/`skipped` counts and never raises. Disabled by default.
+
+Process lifecycle: on timeout the subprocess — and, on POSIX, its whole process group, since the
+child starts in its own session — is terminated (SIGTERM, then SIGKILL) and always waited on, so
+no zombies or orphaned children survive. The structured `VerificationOutcome`
+(`completed`/`timed_out`/`launch_failed`, return code, parsed summary) is what the event carries.
+
 ## One assessment cycle
 
 1. A worker event enters the `asyncio.Queue`.
