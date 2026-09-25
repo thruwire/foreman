@@ -229,10 +229,37 @@ class WorkerHealthResponsibility(_CheckConfiguredResponsibility):
         return [directive] if directive is not None else []
 
 
+@dataclass(frozen=True, slots=True)
+class _StickyCompletion:
+    """Evidence fingerprint captured when completion thresholds were met.
+
+    A later assessment may still finish on the strength of this record, but only
+    while the underlying evidence still holds: no new workers have run since it
+    was captured and no completion-relevant score has regressed beyond tolerance.
+    This keeps the "sticky finish" behavior for noisy idle reassessments without
+    letting one transient high score permanently authorize finishing after the
+    evidence changes.
+    """
+
+    iteration: int
+    worker_count: int
+    ready_to_finish: float
+    requirements_satisfied: float
+    tests_sufficient: float
+    needs_verification: float
+    verification_completed: bool
+
+
+# Maximum regression of a recorded completion score (or rise of
+# needs_verification) before a sticky finish authorization is discarded.
+_STICKY_EVIDENCE_TOLERANCE = 0.20
+
+
 @dataclass(slots=True)
 class CompletionResponsibility(_CheckConfiguredResponsibility):
     config: FactoryConfig
     id: str = COMPLETION
+    _sticky: _StickyCompletion | None = field(default=None, repr=False)
     required_check_ids: ClassVar[frozenset[str]] = frozenset(
         {"implementation_complete", "requirements_satisfied", "ready_to_finish"}
     )
@@ -274,6 +301,7 @@ class CompletionResponsibility(_CheckConfiguredResponsibility):
             VERIFICATION, "needs_verification"
         ) < self.minimum(VERIFICATION, "needs_verification")
         if finish_ready and verification_resolved:
+            self._capture_sticky(state, result)
             return [
                 _directive(
                     state,
@@ -283,6 +311,22 @@ class CompletionResponsibility(_CheckConfiguredResponsibility):
                     priority=700,
                 )
             ]
+        if (
+            self._sticky is not None
+            and verification_resolved
+            and self._sticky_holds(state, result)
+        ):
+            return [
+                _directive(
+                    state,
+                    responsibility_id=self.id,
+                    action=InterventionType.FINISH,
+                    reason="completion thresholds met earlier and supporting evidence still holds",
+                    priority=700,
+                )
+            ]
+        # The evidence moved on: never carry a stale finish authorization forward.
+        self._sticky = None
         return [
             _directive(
                 state,
@@ -292,6 +336,36 @@ class CompletionResponsibility(_CheckConfiguredResponsibility):
                 priority=500,
             )
         ]
+
+    def _capture_sticky(self, state: FactoryState, result: ForemanResult) -> None:
+        self._sticky = _StickyCompletion(
+            iteration=max(1, state.iteration),
+            worker_count=len(state.workers),
+            ready_to_finish=result.probability(self.id, "ready_to_finish"),
+            requirements_satisfied=result.probability(self.id, "requirements_satisfied"),
+            tests_sufficient=result.probability(VERIFICATION, "tests_sufficient"),
+            needs_verification=result.probability(VERIFICATION, "needs_verification"),
+            verification_completed=state.verification_completed,
+        )
+
+    def _sticky_holds(self, state: FactoryState, result: ForemanResult) -> bool:
+        record = self._sticky
+        if record is None:
+            return False
+        if len(state.workers) != record.worker_count:
+            return False
+        if record.verification_completed and not state.verification_completed:
+            return False
+        for responsibility_id, check_id, recorded in (
+            (self.id, "ready_to_finish", record.ready_to_finish),
+            (self.id, "requirements_satisfied", record.requirements_satisfied),
+            (VERIFICATION, "tests_sufficient", record.tests_sufficient),
+        ):
+            current = result.probability(responsibility_id, check_id)
+            if current < recorded - _STICKY_EVIDENCE_TOLERANCE:
+                return False
+        needs_verification = result.probability(VERIFICATION, "needs_verification")
+        return needs_verification <= record.needs_verification + _STICKY_EVIDENCE_TOLERANCE
 
 
 @dataclass(slots=True)

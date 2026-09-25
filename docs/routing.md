@@ -93,3 +93,14 @@ Configured extensions can add namespaced responsibility implementations and hier
 groups. A matching group may expose cached child candidates such as projects, then route into the
 responsibilities beneath every matching child or the single `best_match` child. Group bindings and
 the complete route trace are persisted with the routing decision. See [Extensions](extensions.md).
+
+## Completion stickiness
+
+When `core.completion` observes the finish thresholds met, it records an evidence
+fingerprint (the completion-relevant scores, the worker count, and the verification
+state). A later assessment whose scores dip below the thresholds — the noisy idle
+reassessments semantic scoring produces — may still finish the run, but only while
+that fingerprint still holds: no new workers have run and no recorded score has
+regressed beyond a 0.20 tolerance. If the evidence moves on, the authorization is
+discarded instead of carried forward, so one transient high score can never
+permanently authorize finishing.
