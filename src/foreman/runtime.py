@@ -158,9 +158,12 @@ async def run_verification_command(
     """Run a verification command with a timeout, fully reaping the subprocess.
 
     On timeout the process (and, on POSIX, its whole process group) is
-    terminated and then waited on: no zombies, no orphaned children. Returns
-    a structured outcome, including parsed pytest counts when the output
-    contains a summary line. Never raises for command failures.
+    terminated and then waited on: no zombies, no orphaned children. If the
+    awaiting task is cancelled (e.g. factory shutdown while verification is
+    still running), the subprocess is likewise terminated and reaped before
+    the cancellation propagates. Returns a structured outcome, including
+    parsed pytest counts when the output contains a summary line. Never
+    raises for command failures.
     """
     started = time.monotonic()
     spawn_kwargs: dict[str, object] = {}
@@ -205,6 +208,11 @@ async def run_verification_command(
             summary=f"verification timed out after {timeout_seconds:g}s",
             elapsed_seconds=time.monotonic() - started,
         )
+    except asyncio.CancelledError:
+        # The awaiting task was cancelled: terminate and reap the child so
+        # no zombie or orphaned subprocess survives, then propagate.
+        await _terminate_process_tree(proc, grace_seconds=kill_grace_seconds)
+        raise
     output = stdout.decode("utf-8", errors="replace")
     counts, summary = _parse_verification_counts(output)
     elapsed = time.monotonic() - started
@@ -404,6 +412,22 @@ class FactoryRuntime:
             record.termination_reason = "worker_exception"
             record.stderr = f"{record.stderr}\n{type(error).__name__}: {error}".strip()
         finally:
+            verification_outcome: VerificationOutcome | None = None
+            verification_cancelled: asyncio.CancelledError | None = None
+            if record.worker_type is WorkerType.CODING and record.status is WorkerStatus.COMPLETED:
+                # Verification is part of the worker's terminal lifecycle: it
+                # runs while the worker is still tracked in active_workers and
+                # finishes — recording TEST_RESULT — before the terminal event
+                # is emitted. The supervisor therefore cannot assess the
+                # completion event, select FINISH, and close the factory while
+                # verification is still running.
+                try:
+                    verification_outcome = await self._verify_tests_after_worker(record)
+                except asyncio.CancelledError as error:
+                    # Shutdown raced verification. run_verification_command
+                    # already terminated and reaped the subprocess; finish
+                    # lifecycle bookkeeping below, then propagate.
+                    verification_cancelled = error
             if record.worker_id in self.state.active_workers:
                 self.state.active_workers.remove(record.worker_id)
             if record.status is WorkerStatus.COMPLETED:
@@ -439,21 +463,26 @@ class FactoryRuntime:
                 terminal_type = EventType.WORKER_STOPPED
             else:
                 terminal_type = EventType.WORKER_FAILED
-            await self.emit(
-                terminal_type,
-                {
-                    "worker_id": record.worker_id,
-                    "worker_type": record.worker_type.value,
-                    "status": record.status.value,
-                    "exit_code": record.exit_code,
-                    "termination_reason": record.termination_reason,
-                },
-            )
-            if (
-                record.worker_type is WorkerType.CODING
-                and record.status is WorkerStatus.COMPLETED
-            ):
-                await self._verify_tests_after_worker(record)
+            terminal_payload: dict[str, object] = {
+                "worker_id": record.worker_id,
+                "worker_type": record.worker_type.value,
+                "status": record.status.value,
+                "exit_code": record.exit_code,
+                "termination_reason": record.termination_reason,
+            }
+            if verification_outcome is not None:
+                terminal_payload["verification"] = {
+                    "status": verification_outcome.status,
+                    "returncode": verification_outcome.returncode,
+                    "passed": verification_outcome.passed,
+                    "failed": verification_outcome.failed,
+                    "errored": verification_outcome.errored,
+                    "skipped": verification_outcome.skipped,
+                    "summary": verification_outcome.summary,
+                }
+            await self.emit(terminal_type, terminal_payload)
+            if verification_cancelled is not None:
+                raise verification_cancelled
 
     def _verification_command(self) -> list[str]:
         return [
@@ -466,14 +495,16 @@ class FactoryRuntime:
             "no:cacheprovider",
         ]
 
-    async def _verify_tests_after_worker(self, record: WorkerRecord) -> None:
+    async def _verify_tests_after_worker(self, record: WorkerRecord) -> VerificationOutcome | None:
         """Opt-in runtime-owned test verification after a coding worker completes.
 
         Disabled unless `verify_tests_on_complete` is set. Evidence-gathering
-        only: the outcome is reported as a TEST_RESULT event and never raises.
+        only: the outcome is reported as a TEST_RESULT event and never raises
+        for command failures. Task cancellation propagates after the
+        verification subprocess is terminated and reaped.
         """
         if not self.config.verify_tests_on_complete:
-            return
+            return None
         outcome = await run_verification_command(
             self._verification_command(),
             cwd=self.repository,
@@ -496,6 +527,7 @@ class FactoryRuntime:
                 "elapsed_seconds": outcome.elapsed_seconds,
             },
         )
+        return outcome
 
     async def start_worker(self, worker_type: WorkerType) -> WorkerRecord:
         if len(self.state.active_workers) >= self.config.max_concurrent_workers:

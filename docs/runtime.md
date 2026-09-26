@@ -36,9 +36,17 @@ the repository's pytest suite itself after a coding worker completes, bounded by
 evidence-gathering, not a gate: the outcome is emitted as a `TEST_RESULT` event with parsed
 `passed`/`failed`/`errored`/`skipped` counts and never raises. Disabled by default.
 
-Process lifecycle: on timeout the subprocess — and, on POSIX, its whole process group, since the
-child starts in its own session — is terminated (SIGTERM, then SIGKILL) and always waited on, so
-no zombies or orphaned children survive. The structured `VerificationOutcome`
+Verification is part of the coding worker's terminal lifecycle: it runs while the worker is still
+tracked in `active_workers`, and the `TEST_RESULT` event is recorded before the terminal
+`WORKER_COMPLETED` event is emitted (which carries a `verification` summary of the outcome).
+The supervisor therefore cannot assess the completion event, select `FINISH`, and close the
+factory while verification is still running — shutdown waits for in-flight verification rather
+than cancelling it.
+
+Process lifecycle: on timeout — or if the awaiting task is cancelled, e.g. by factory shutdown —
+the subprocess — and, on POSIX, its whole process group, since the child starts in its own
+session — is terminated (SIGTERM, then SIGKILL) and always waited on, so no zombies or orphaned
+children survive. The structured `VerificationOutcome`
 (`completed`/`timed_out`/`launch_failed`, return code, parsed summary) is what the event carries.
 
 ## One assessment cycle
