@@ -70,11 +70,15 @@ min_threshold = 0.75
 ## Built-in responsibility settings
 
 `core.worker-health` additionally accepts `cold_start_grace_seconds` (default `0.0`,
-also `FOREMAN_COLD_START_GRACE_SECONDS`): while the active worker is younger than this
-window, worker health defers judgment with `CONTINUE` instead of steering or stopping it,
-because a freshly launched worker boots silently and streams no evidence until it starts
-working. A worker with no recorded start time is not treated as young. The default `0.0`
-disables the grace period.
+also `FOREMAN_COLD_START_GRACE_SECONDS`) and `cold_start_quiet_output_bytes` (default `0`,
+also `FOREMAN_COLD_START_QUIET_OUTPUT_BYTES`): while the active worker is younger than the
+grace window *and* has produced at most `cold_start_quiet_output_bytes` of captured
+stdout/stderr, a `worker_stuck` verdict is deferred with `CONTINUE` instead of steering or
+stopping it, because a freshly launched worker boots silently and an early stuckness
+judgment has no evidence behind it. A `work_off_track` verdict is evidence-backed and is
+never deferred by the cold-start grace, however young or quiet the worker is. A worker
+with no recorded start time is not treated as young. The default `0.0` disables the grace
+period.
 
 Completion and verification are required global lifecycle responsibilities. Other built-ins may
 be disabled or made conditional. Repository instruction paths are responsibility settings; they
