@@ -40,6 +40,7 @@ class FactoryConfig(BaseModel):
     steering_enabled: bool = True
     max_steers_per_worker: int = Field(default=1, ge=0)
     steering_grace_seconds: float = Field(default=30.0, ge=0.0)
+    score_smoothing_alpha: float = Field(default=1.0, gt=0.0, le=1.0)
 
     diff_limit: int = Field(default=20_000, ge=100)
     output_limit: int = Field(default=12_000, ge=100)
@@ -79,6 +80,7 @@ class FactoryConfig(BaseModel):
             ),
             "FOREMAN_MAX_STEERS_PER_WORKER": ("max_steers_per_worker", int),
             "FOREMAN_STEERING_GRACE_SECONDS": ("steering_grace_seconds", float),
+            "FOREMAN_SCORE_SMOOTHING_ALPHA": ("score_smoothing_alpha", float),
             "FOREMAN_HOOK_SESSION_TTL_SECONDS": ("hook_session_ttl_seconds", float),
         }
         values: dict[str, object] = {}

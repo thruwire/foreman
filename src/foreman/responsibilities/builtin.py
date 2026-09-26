@@ -9,6 +9,7 @@ from typing import Any, ClassVar, Self
 from foreman.config import FactoryConfig
 from foreman.models import Directive, FactoryState, ForemanResult, InterventionType
 from foreman.responsibilities.base import Check, ResponsibilityRegistry, ResponsibilityRoute
+from foreman.responsibilities.smoothing import ExponentialSmoother
 
 COMPLETION = "core.completion"
 VERIFICATION = "core.verification"
@@ -22,8 +23,25 @@ DOCUMENTATION = "quality.documentation"
 class _CheckConfiguredResponsibility:
     check_definitions: tuple[Check, ...] = ()
     minimum_thresholds: Mapping[str, float] = field(default_factory=dict, repr=False)
+    _smoother: ExponentialSmoother | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
     required_check_ids: ClassVar[frozenset[str]]
     required_minimum_keys: ClassVar[frozenset[str]] = frozenset()
+
+    def _smoothed_probability(
+        self, result: ForemanResult, responsibility_id: str, check_id: str
+    ) -> float:
+        smoother = self._smoother
+        if smoother is None:
+            # Each responsibility lazily owns its smoother, so smoothing state is
+            # never shared between responsibilities and never written back onto
+            # the shared ForemanResult.
+            smoother = self._smoother = ExponentialSmoother(
+                alpha=self.config.score_smoothing_alpha
+            )
+        raw = result.probability(responsibility_id, check_id)
+        return smoother.smooth(f"{responsibility_id}__{check_id}", raw)
 
     def configured_checks(self, checks: Sequence[Check]) -> Self:
         configured = tuple(checks)
@@ -123,7 +141,7 @@ class HumanEscalationResponsibility(_CheckConfiguredResponsibility):
     )
 
     def directives(self, state: FactoryState, result: ForemanResult) -> list[Directive]:
-        score = result.probability(self.id, "needs_human")
+        score = self._smoothed_probability(result, self.id, "needs_human")
         if score < self.minimum(self.id, "needs_human"):
             return []
         return [
@@ -157,7 +175,7 @@ class RepositoryInstructionsResponsibility(_CheckConfiguredResponsibility):
                 raise ValueError(f"invalid repository instruction path: {filename!r}")
 
     def directives(self, state: FactoryState, result: ForemanResult) -> list[Directive]:
-        score = result.probability(self.id, "agents_md_drift")
+        score = self._smoothed_probability(result, self.id, "agents_md_drift")
         if score < self.minimum(self.id, "agents_md_drift"):
             return []
         directive = _worker_warning(
@@ -182,7 +200,7 @@ class DocumentationResponsibility(_CheckConfiguredResponsibility):
     def directives(self, state: FactoryState, result: ForemanResult) -> list[Directive]:
         if state.active_workers:
             return []
-        score = result.probability(self.id, "documentation_sufficient")
+        score = self._smoothed_probability(result, self.id, "documentation_sufficient")
         if score >= self.minimum(self.id, "documentation_sufficient"):
             return []
         return [
@@ -209,8 +227,8 @@ class WorkerHealthResponsibility(_CheckConfiguredResponsibility):
     )
 
     def directives(self, state: FactoryState, result: ForemanResult) -> list[Directive]:
-        stuck = result.probability(self.id, "worker_stuck")
-        off_track = result.probability(self.id, "work_off_track")
+        stuck = self._smoothed_probability(result, self.id, "worker_stuck")
+        off_track = self._smoothed_probability(result, self.id, "work_off_track")
         candidates: list[tuple[float, str]] = []
         if off_track >= self.minimum(self.id, "work_off_track"):
             candidates.append((off_track, "active worker appears off track"))
@@ -263,16 +281,17 @@ class CompletionResponsibility(_CheckConfiguredResponsibility):
             ]
 
         finish_ready = (
-            result.probability(self.id, "ready_to_finish")
+            self._smoothed_probability(result, self.id, "ready_to_finish")
             >= self.minimum(self.id, "ready_to_finish")
-            and result.probability(self.id, "requirements_satisfied")
+            and self._smoothed_probability(result, self.id, "requirements_satisfied")
             >= self.minimum(self.id, "requirements_satisfied")
-            and result.probability(VERIFICATION, "tests_sufficient")
+            and self._smoothed_probability(result, VERIFICATION, "tests_sufficient")
             >= self.minimum(VERIFICATION, "tests_sufficient")
         )
-        verification_resolved = state.verification_completed or result.probability(
-            VERIFICATION, "needs_verification"
-        ) < self.minimum(VERIFICATION, "needs_verification")
+        verification_resolved = state.verification_completed or (
+            self._smoothed_probability(result, VERIFICATION, "needs_verification")
+            < self.minimum(VERIFICATION, "needs_verification")
+        )
         if finish_ready and verification_resolved:
             return [
                 _directive(
@@ -311,9 +330,9 @@ class VerificationResponsibility(_CheckConfiguredResponsibility):
     def directives(self, state: FactoryState, result: ForemanResult) -> list[Directive]:
         should_verify = (
             not state.active_workers
-            and result.probability(self.id, "needs_verification")
+            and self._smoothed_probability(result, self.id, "needs_verification")
             >= self.minimum(self.id, "needs_verification")
-            and result.probability(COMPLETION, "implementation_complete")
+            and self._smoothed_probability(result, COMPLETION, "implementation_complete")
             >= self.minimum(COMPLETION, "implementation_complete")
             and not state.verification_started
         )
