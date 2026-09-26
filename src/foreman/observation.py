@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from foreman.config import FactoryConfig
 from foreman.models import FactoryState, ForemanResult, Intervention, WorkerRecord
 from foreman.persistence import RunStore
+from foreman.test_summary import parse_pytest_summaries
 
 
 class FactoryObservation(BaseModel):
@@ -215,7 +216,12 @@ async def build_observation(
         ],
         agents_md_path=agents_md_path,
         agents_md_instructions=agents_md_instructions,
-        test_results=[],
+        test_results=[
+            {"source": "worker_output", **summary.to_dict()}
+            for summary in parse_pytest_summaries(
+                f"{latest.stdout}\n{latest.stderr}" if latest else ""
+            )
+        ],
         verification_results=[
             result.model_dump(mode="json") for result in state.verification_results
         ],

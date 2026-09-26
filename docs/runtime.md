@@ -64,6 +64,19 @@ before routing. Activation is local-only. Managed runs persist `EXTENSIONS_ACTIV
 `FOREMAN_ROUTED`; attached sessions pin extension IDs and snapshot revisions to prevent the active
 responsibility set from changing silently during a session. See [Extensions](extensions.md).
 
+## Test evidence from worker output
+
+Backends that stream no structured test events still leave pytest's summary lines in the worker's
+captured output. `build_observation` parses those lines with `foreman.test_summary` and populates
+the observation's `test_results` with one structured entry per summary found
+(`passed`/`failed`/`errored`/`skipped` counts plus an overall `status`), tagged
+`"source": "worker_output"`.
+
+The parser handles both passed-first and failure-first orderings (`1 failed, 3 passed`), the
+`N error`/`N errors` forms, skipped counts, and the optional `=== … ===` wrappers and trailing
+`in Ns` timing. Lines without recognized test counts (for example `2 warnings in 0.12s`) are not
+treated as test summaries.
+
 ## Shutdown
 
 Worker timeout, overall timeout, escalation, and cancellation first request `turn/interrupt`.
