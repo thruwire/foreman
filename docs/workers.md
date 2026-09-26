@@ -22,6 +22,7 @@ one capability and three coroutines:
 | Codex App Server | `FOREMAN_WORKER_BACKEND=codex` (default) + `FOREMAN_CODEX_BACKEND=app-server` (default) | Yes, into the active turn |
 | Codex exec | `FOREMAN_CODEX_BACKEND=exec` | No — stop/retry only |
 | OpenCode | `FOREMAN_WORKER_BACKEND=opencode` | No — stop/retry only |
+| Hermes | `FOREMAN_WORKER_BACKEND=hermes` | No — stop/retry only |
 
 The OpenCode backend shells out to `opencode run` in non-interactive mode.
 The prompt is passed positionally and `--auto` keeps the headless run from
@@ -30,6 +31,20 @@ explicitly denied and Foreman does not sandbox OpenCode, so configure restrictiv
 permission rules in `opencode.json` before running untrusted jobs. An optional
 model can be pinned per worker when embedding Foreman
 (`OpenCodeWorker(model="provider/model")`).
+
+The Hermes backend shells out to `hermes chat` in headless single-query mode
+(`-q <mission> -Q`), requesting newline-delimited JSON events with
+`--format stream-json` when the installed Hermes build supports it (older
+builds without the flag degrade to raw stdout text). The mission carries a
+working-directory preamble so the agent operates in the repository even when
+the CLI resolves its shell cwd elsewhere, and each NDJSON event is decoded
+into compact `tool_use` / `tool_result` / session summaries on the event
+stream. Command flags can be tuned per worker
+(`HermesWorker(model=..., provider=..., max_turns=..., toolsets=...)`) or via
+`FOREMAN_HERMES_EXECUTABLE`, `FOREMAN_HERMES_MODEL`, `FOREMAN_HERMES_PROVIDER`,
+`FOREMAN_HERMES_MAX_TURNS`, and `FOREMAN_HERMES_TOOLSETS`. Like the other
+non-interactive CLIs, Hermes has no live-turn input channel: `steer` always
+returns `False` and the policy falls back to stop/retry.
 
 ## Adding a backend
 
