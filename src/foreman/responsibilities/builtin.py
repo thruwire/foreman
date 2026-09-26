@@ -211,14 +211,28 @@ class WorkerHealthResponsibility(_CheckConfiguredResponsibility):
     def directives(self, state: FactoryState, result: ForemanResult) -> list[Directive]:
         stuck = result.probability(self.id, "worker_stuck")
         off_track = result.probability(self.id, "work_off_track")
-        candidates: list[tuple[float, str]] = []
-        if off_track >= self.minimum(self.id, "work_off_track"):
-            candidates.append((off_track, "active worker appears off track"))
-        if stuck >= self.minimum(self.id, "worker_stuck"):
-            candidates.append((stuck, "active worker appears stuck"))
-        if not candidates:
+        off_track_fires = off_track >= self.minimum(self.id, "work_off_track")
+        stuck_fires = stuck >= self.minimum(self.id, "worker_stuck")
+        if not off_track_fires and not stuck_fires:
             return []
-        confidence, reason = max(candidates, key=lambda item: item[0])
+        if off_track_fires:
+            # An off-track verdict is evidence-backed, so it is never deferred by
+            # the cold-start grace period, however young or quiet the worker is.
+            reason, confidence = "active worker appears off track", off_track
+        elif self._stuck_deferred_by_cold_start(state):
+            return [
+                _directive(
+                    state,
+                    responsibility_id=self.id,
+                    action=InterventionType.CONTINUE,
+                    reason="active worker is within the cold-start grace period",
+                    priority=900,
+                    worker_id=state.active_workers[0],
+                    confidence=stuck,
+                )
+            ]
+        else:
+            reason, confidence = "active worker appears stuck", stuck
         directive = _worker_warning(
             state,
             self.config,
@@ -227,6 +241,25 @@ class WorkerHealthResponsibility(_CheckConfiguredResponsibility):
             confidence=confidence,
         )
         return [directive] if directive is not None else []
+
+    def _stuck_deferred_by_cold_start(self, state: FactoryState) -> bool:
+        """Defer a stuckness judgment only while the active worker is young and
+        quiet. A freshly launched worker boots silently, so an early stuck
+        verdict has no evidence behind it. Once the worker has produced more
+        than ``cold_start_quiet_output_bytes`` of captured output, or once it
+        outgrows ``cold_start_grace_seconds``, stuckness is judged normally.
+        Off-track verdicts always carry evidence and are never deferred here.
+        A worker with no recorded start time is not treated as young: fail
+        closed toward the established behavior."""
+        grace = self.config.cold_start_grace_seconds
+        if grace <= 0.0 or not state.active_workers:
+            return False
+        worker = next(item for item in state.workers if item.worker_id == state.active_workers[0])
+        age = worker.duration_seconds
+        if age is None or age >= grace:
+            return False
+        output_bytes = len((worker.stdout + worker.stderr).encode("utf-8"))
+        return output_bytes <= self.config.cold_start_quiet_output_bytes
 
 
 @dataclass(slots=True)
@@ -338,6 +371,8 @@ _SETTING_FIELDS = {
         "steering_enabled": "steering_enabled",
         "max_steers_per_worker": "max_steers_per_worker",
         "steering_grace_seconds": "steering_grace_seconds",
+        "cold_start_grace_seconds": "cold_start_grace_seconds",
+        "cold_start_quiet_output_bytes": "cold_start_quiet_output_bytes",
     },
     COMPLETION: {},
     VERIFICATION: {},
