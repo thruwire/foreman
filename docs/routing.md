@@ -83,6 +83,20 @@ the shared assessment result and never couples one responsibility's decisions to
 another's. `alpha=1.0` disables smoothing: values pass through untouched and no state
 is recorded.
 
+Sampling discipline: every score a responsibility thresholds on is read and smoothed
+exactly once per assessment, before any threshold or boolean logic runs. Smoothing
+inside short-circuiting expressions would advance one key's moving average while
+leaving another's behind, so a later decision could combine averages built from
+different assessment histories. All threshold logic operates on the sampled locals.
+
+Safety semantics: not every signal may be damped. `needs_human` and `work_off_track`
+use fast-attack, slow-release smoothing instead of the symmetric EMA. A newly high
+safety reading is never damped — the raw value wins on rising edges, so escalation
+fires on the very assessment that reports it — while falling edges ease down through
+the EMA so a single low reading does not flap the signal off. Damping a newly high
+safety signal would be a safety regression; damping completion noise (readiness,
+requirements, tests, verification) is the intended use of smoothing.
+
 ## Runtime flow
 
 For a real `foreman run`:
