@@ -83,6 +83,26 @@ Worker timeout, overall timeout, escalation, and cancellation first request `tur
 If App Server does not complete the turn during the grace period, Foreman terminates the subprocess
 group. Final state and the terminal event are persisted before the runtime closes the model client.
 
+## Untracked-file evidence
+
+`git diff` never shows untracked files, so new tests and sources written by a worker are invisible
+to the supervisor. Each observation therefore includes a bounded excerpt of untracked text-file
+content in `FactoryObservation.untracked_evidence`, parsed from
+`git status --short --untracked-files=all` so untracked directories are listed as individual
+files (a collapsed `dir/` entry is expanded to its files as a fallback).
+
+Hard bounds, via typed `FactoryConfig` fields (and `FOREMAN_UNTRACKED_EVIDENCE_*` environment
+variables):
+
+- `untracked_evidence_file_limit` (default 3): maximum files included.
+- `untracked_evidence_byte_limit` (default 4096): maximum file-content bytes in total.
+
+Binary-looking files (NUL byte in the first 4 KiB), unreadable files, symlinks, paths escaping the
+repository, and files whose names look sensitive (`.env`, `id_rsa`, `*secret*`, `*token*`,
+`*.pem`, `*.key`, …) are skipped. Content is truncated on raw byte boundaries before UTF-8
+decoding, so multibyte text can never exceed the byte limit. Read-only: the repository is never
+mutated.
+
 ## Reading the code
 
 Start with these modules:

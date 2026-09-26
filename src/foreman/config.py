@@ -44,6 +44,8 @@ class FactoryConfig(BaseModel):
     diff_limit: int = Field(default=20_000, ge=100)
     output_limit: int = Field(default=12_000, ge=100)
     field_limit: int = Field(default=50_000, ge=100)
+    untracked_evidence_file_limit: int = Field(default=3, ge=1)
+    untracked_evidence_byte_limit: int = Field(default=4_096, ge=100)
     event_history_limit: int = Field(default=30, ge=1)
     worker_history_limit: int = Field(default=10, ge=1)
     hook_session_ttl_seconds: float = Field(default=604_800.0, gt=0.0)
@@ -80,6 +82,14 @@ class FactoryConfig(BaseModel):
             "FOREMAN_MAX_STEERS_PER_WORKER": ("max_steers_per_worker", int),
             "FOREMAN_STEERING_GRACE_SECONDS": ("steering_grace_seconds", float),
             "FOREMAN_HOOK_SESSION_TTL_SECONDS": ("hook_session_ttl_seconds", float),
+            "FOREMAN_UNTRACKED_EVIDENCE_FILE_LIMIT": (
+                "untracked_evidence_file_limit",
+                int,
+            ),
+            "FOREMAN_UNTRACKED_EVIDENCE_BYTE_LIMIT": (
+                "untracked_evidence_byte_limit",
+                int,
+            ),
         }
         values: dict[str, object] = {}
         for env_name, (field_name, converter) in mapping.items():
