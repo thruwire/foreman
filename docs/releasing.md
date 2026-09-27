@@ -22,7 +22,7 @@ the PyPI project and converts the pending publisher into a normal trusted publis
 
 1. Update `version` in `pyproject.toml` and the release notes, then merge the change to `main`.
 2. Confirm the test suite and package build pass locally.
-3. Create a GitHub release from `main` with a tag matching the package version, such as `v0.4.0`.
+3. Create a GitHub release from `main` with a tag matching the package version, such as `vX.Y.Z`.
 4. Publish the GitHub release. The `release.yml` workflow verifies the tag, runs the tests and
    linter, builds and checks the wheel and source distribution, and publishes them through OpenID
    Connect. No PyPI token is stored in GitHub.
@@ -30,7 +30,7 @@ the PyPI project and converts the pending publisher into a normal trusted publis
 
    ```bash
    python -m venv /tmp/foreman-release-check
-   /tmp/foreman-release-check/bin/python -m pip install foreman-core==0.4.0
+   /tmp/foreman-release-check/bin/python -m pip install foreman-core==X.Y.Z
    /tmp/foreman-release-check/bin/foreman --help
    ```
 
