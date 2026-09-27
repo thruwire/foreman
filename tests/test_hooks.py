@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from typer.testing import CliRunner
 
 from foreman.cli import app
-from foreman.config import FactoryConfig
+from foreman.config import CommandEvidenceConfig, FactoryConfig
 from foreman.foreman import ForemanModelError
 from foreman.hook_adapters import CodexHookAdapter, hook_adapter
 from foreman.hooks import (
@@ -127,7 +128,7 @@ async def handle(supervisor: AttachedWorkerRuntime, payload: dict) -> dict:
     return adapter.render(event, outcome)
 
 
-def runtime(tmp_path, model=None, runtime_config=None):
+def runtime(tmp_path, model=None, runtime_config=None, responsibilities_dir=None):
     runtime_config = runtime_config or config()
     store = AttachedSessionStore(
         tmp_path / "foreman-data",
@@ -137,7 +138,9 @@ def runtime(tmp_path, model=None, runtime_config=None):
     supervisor = AttachedWorkerRuntime(
         model=model or StubModel(),
         router=router,
-        responsibilities=configured_registry(runtime_config),
+        responsibilities=configured_registry(
+            runtime_config, config_dir=responsibilities_dir
+        ),
         config=runtime_config,
         store=store,
     )
@@ -257,11 +260,53 @@ async def test_ready_stop_finishes_attached_worker(tmp_path) -> None:
     await handle(supervisor, event("UserPromptSubmit", tmp_path, prompt="Implement it"))
 
     assert await handle(supervisor, event("Stop", tmp_path)) == {}
-
     session = store.load("thr-attached-123")
     assert session is not None and session.state is not None
     assert session.state.status is FactoryStatus.FINISHED
     assert session.state.active_workers == []
+
+
+@pytest.mark.asyncio
+async def test_attached_stop_collects_check_selected_command_evidence(tmp_path) -> None:
+    model = StubModel(
+        implementation_complete=0.99,
+        requirements_satisfied=0.99,
+        ready_to_finish=0.99,
+        tests_sufficient=0.99,
+        needs_verification=0.0,
+    )
+    responsibility_dir = tmp_path / "responsibilities"
+    responsibility_dir.mkdir()
+    (responsibility_dir / "core.verification.toml").write_text(
+        """
+[checks.tests_sufficient]
+instructions = "Does the external evidence show sufficient passing verification?"
+min_threshold = 0.75
+evidence = ["command.external"]
+""".strip(),
+        encoding="utf-8",
+    )
+    runtime_config = config(
+        command_evidence=(
+            CommandEvidenceConfig(
+                id="external",
+                command=(sys.executable, "-c", "raise SystemExit(3)"),
+            ),
+        )
+    )
+    supervisor, store, _ = runtime(
+        tmp_path, model, runtime_config, responsibility_dir
+    )
+    await handle(supervisor, event("UserPromptSubmit", tmp_path, prompt="Implement it"))
+
+    output = await handle(supervisor, event("Stop", tmp_path))
+
+    assert output == {}
+    session = store.load("thr-attached-123")
+    assert session is not None and session.state is not None
+    assert session.state.status is FactoryStatus.FINISHED
+    assert session.state.command_evidence[-1].exit_code == 3
+    assert model.calls[-1][0].command_evidence[-1]["provider_id"] == "command.external"
 
 
 @pytest.mark.asyncio

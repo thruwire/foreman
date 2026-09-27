@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from foreman.config import FactoryConfig
+from foreman.evidence import BUILTIN_EVIDENCE_FIELDS
 from foreman.models import FactoryState, ForemanResult, Intervention, WorkerRecord
 from foreman.persistence import RunStore
 from foreman.test_summary import parse_pytest_summaries
@@ -38,6 +39,7 @@ class FactoryObservation(BaseModel):
     agents_md_instructions: str = ""
     test_results: list[dict[str, Any]]
     verification_results: list[dict[str, Any]]
+    command_evidence: list[dict[str, Any]] = Field(default_factory=list)
     recent_events: list[dict[str, Any]]
     previous_result: ForemanResult | None
     previous_intervention: Intervention | None
@@ -58,6 +60,45 @@ class FactoryObservation(BaseModel):
         if not isinstance(value, str):
             raise TypeError("observation text fields must be strings")
         return value
+
+    def state_for(self, providers: tuple[str, ...]) -> dict[str, Any]:
+        """Build the Jev state envelope for one check's selected providers."""
+
+        values = self.model_dump(mode="json")
+        state = {
+            field: values[field]
+            for field in (
+                "original_job",
+                "run_id",
+                "factory_status",
+                "iteration",
+                "routing_bindings",
+                "active_extension_ids",
+                "extension_snapshot_revisions",
+                "attempts",
+                "elapsed_factory_seconds",
+            )
+        }
+        commands = {
+            item["provider_id"]: item for item in values["command_evidence"]
+        }
+        selected_commands: list[dict[str, Any]] = []
+        for provider in providers:
+            fields = BUILTIN_EVIDENCE_FIELDS.get(provider)
+            if fields is not None:
+                state.update({field: values[field] for field in fields})
+            elif provider.startswith("command."):
+                selected_commands.append(
+                    commands.get(
+                        provider,
+                        {"provider_id": provider, "status": "not_collected"},
+                    )
+                )
+            else:
+                raise ValueError(f"unknown evidence provider: {provider}")
+        if selected_commands:
+            state["command_evidence"] = selected_commands
+        return state
 
 
 def _tail(value: str, limit: int) -> str:
@@ -317,6 +358,9 @@ async def build_observation(
     history = state.workers[-config.worker_history_limit :]
     latest = history[-1] if history else None
     elapsed = max(0.0, (datetime.now(UTC) - state.started_at).total_seconds())
+    latest_command_evidence = {}
+    for result in state.command_evidence:
+        latest_command_evidence[result.provider_id] = result
 
     return FactoryObservation(
         original_job=_tail(state.job, config.field_limit),
@@ -356,6 +400,10 @@ async def build_observation(
         ],
         verification_results=[
             result.model_dump(mode="json") for result in state.verification_results
+        ],
+        command_evidence=[
+            result.model_dump(mode="json")
+            for result in latest_command_evidence.values()
         ],
         recent_events=recent_events[-config.event_history_limit :],
         previous_result=state.latest_result,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
@@ -26,6 +26,19 @@ class VerificationResult(BaseModel):
     worker_id: str
     passed: bool
     summary: str = ""
+    recorded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class CommandEvidenceResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider_id: str
+    worker_id: str
+    status: Literal["completed", "timed_out", "launch_failed"] = "completed"
+    exit_code: int | None = None
+    stdout_tail: str = ""
+    stderr_tail: str = ""
+    elapsed_seconds: float | None = Field(default=None, ge=0.0)
     recorded_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -58,6 +71,7 @@ class FactoryState(BaseModel):
     latest_intervention: Intervention | None = None
     intervention_history: list[Intervention] = Field(default_factory=list)
     verification_results: list[VerificationResult] = Field(default_factory=list)
+    command_evidence: list[CommandEvidenceResult] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     retry_count: int = Field(default=0, ge=0)
     consecutive_assessment_failures: int = Field(default=0, ge=0)

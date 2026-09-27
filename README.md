@@ -54,6 +54,7 @@ conventional coding-agent harness.
 - [Why Jev fits the experiment](docs/why-jev.md)
 - [What Foreman is proving](docs/what-foreman-proves.md)
 - [Runtime and event flow](docs/runtime.md)
+- [Evidence providers](docs/evidence.md)
 - [Responsibility configuration and routing](docs/routing.md)
 - [Extensions](docs/extensions.md)
 - [Coding-assistant hooks and attached workers](docs/hooks.md)
@@ -308,6 +309,32 @@ foreman run \
   --job "Add rate limiting to the API and make sure it is properly tested."
 ```
 
+Checks normally receive Foreman's built-in evidence providers. A check can instead name an exact
+provider list, including trusted external CLI tools. Define the command in Foreman's central config:
+
+```toml
+[[evidence.commands]]
+id = "pytest"
+command = ["python", "-m", "pytest", "-q"]
+timeout_seconds = 120
+```
+
+Then pair it with a Jev check in a central responsibility definition:
+
+```toml
+[checks.tests_sufficient]
+instructions = """
+Does the selected evidence show sufficient relevant coverage and passing verification?
+"""
+min_threshold = 0.75
+evidence = ["worker", "git.diff", "command.pytest"]
+```
+
+The command runs after a coding worker completes, before the check's next assessment. Foreman adds
+its bounded output, exit status, and timing to that check's evidence; the check's Jev instructions
+interpret the result through the existing responsibility and policy mechanism. See
+[evidence providers](docs/evidence.md).
+
 The terminal shows worker lifecycle messages and grouped job/factory-floor assessments. It makes
 explicit when the coding agent is working and Foreman is independently watching, without animated
 noise.
@@ -389,7 +416,7 @@ The most useful environment overrides are:
 | `FOREMAN_STEERING_GRACE_SECONDS` | `30` | Time to recover before another intervention |
 | `FOREMAN_RESPONSIBILITIES_DIR` | unset | Optional Foreman-wide responsibility overrides |
 | `FOREMAN_DATA_DIR` | `~/.foreman` | Global configuration, extension, and session data |
-| `FOREMAN_CONFIG` | `~/.foreman/config.toml` | Central extension configuration |
+| `FOREMAN_CONFIG` | `~/.foreman/config.toml` | Central evidence-provider and extension configuration |
 | `FOREMAN_HOOK_SESSION_TTL_SECONDS` | `604800` | Inactive attached-session lifetime |
 
 Observation bounds and runtime limits remain typed `FactoryConfig` fields. Semantic minimums live
@@ -419,6 +446,12 @@ Workers still run with the permissions of the local environment. Codex requests 
 not explicitly denied; Foreman does not add a sandbox around it. Configure restrictive OpenCode
 permission rules before use. Foreman does not make untrusted repositories or jobs safe, so review
 the worker configuration and repository before running either backend.
+
+Configured command evidence providers also run with the user's local permissions and inherit Foreman's
+environment. They are loaded only from trusted central configuration, invoked directly without a
+shell, bounded by a timeout and retained-output limit, and terminated as a process group on timeout.
+Treat provider commands as trusted local code and avoid putting credentials in command arguments or
+printing secrets to their output.
 
 ## Limitations
 

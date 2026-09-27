@@ -16,6 +16,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from foreman.config import FactoryConfig
+from foreman.evidence import run_command_evidence_providers, selected_command_evidence
 from foreman.foreman import ForemanModel, ForemanModelError
 from foreman.models import (
     FactoryState,
@@ -498,6 +499,16 @@ class AttachedWorkerRuntime:
             worker.finished_at = datetime.now(UTC)
             state.active_workers = []
             state.completed_workers = [worker.worker_id]
+            providers = selected_command_evidence(
+                active.checks(), self.config.command_evidence
+            )
+            results = await run_command_evidence_providers(
+                providers,
+                Path(state.repository),
+                worker_id=worker.worker_id,
+                output_limit=self.config.output_limit,
+            )
+            state.command_evidence.extend(results)
         else:
             worker.status = WorkerStatus.RUNNING
             worker.finished_at = None
@@ -619,6 +630,8 @@ class AttachedWorkerRuntime:
         limit = self.config.worker_history_limit
         state.result_history = state.result_history[-limit:]
         state.intervention_history = state.intervention_history[-limit:]
+        evidence_limit = max(limit, len(self.config.command_evidence) * limit)
+        state.command_evidence = state.command_evidence[-evidence_limit:]
         state.errors = state.errors[-limit:]
 
     async def close(self) -> None:

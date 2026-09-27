@@ -9,7 +9,7 @@ from foreman.config import FactoryConfig
 from foreman.foreman import ForemanModelError, JevForemanModel
 from foreman.foreman.jev import normalize_check_results, parse_jev_response
 from foreman.observation import FactoryObservation
-from foreman.responsibilities import builtin_registry
+from foreman.responsibilities import Check, builtin_registry
 
 CHECKS = builtin_registry(FactoryConfig()).checks()
 
@@ -73,6 +73,31 @@ def test_assessment_normalization() -> None:
     assert result.probability("core.worker-health", "work_off_track") == 0.0
 
 
+def test_observation_filters_the_exact_selected_evidence() -> None:
+    value = observation().model_copy(
+        update={
+            "git_diff": "diff --git a/a.py b/a.py",
+            "command_evidence": [
+                {
+                    "provider_id": "command.pytest",
+                    "worker_id": "worker-1",
+                    "status": "completed",
+                    "exit_code": 2,
+                    "stdout_tail": "coverage findings",
+                    "stderr_tail": "",
+                    "elapsed_seconds": 1.2,
+                }
+            ],
+        }
+    )
+
+    state = value.state_for(("git.diff", "command.pytest"))
+
+    assert state["git_diff"].startswith("diff --git")
+    assert state["command_evidence"][0]["exit_code"] == 2
+    assert "worker_history" not in state
+
+
 class Client:
     def __init__(self, result=None, error=None, delay=0.0) -> None:
         self.result = result
@@ -98,10 +123,31 @@ async def test_jev_model_builds_parallel_noul_call() -> None:
     assert result.probability("core.completion", "ready_to_finish") == 0.6
     assert set(client.calls[0]["questions"]) == {check.key for check in CHECKS}
     assert client.calls[0]["model"] == "jev-latest"
-    assert (
-        client.calls[0]["state"]["agents_md_instructions"]
-        == "Run the repository verification command."
+    assert client.calls[0]["state"]["agents_md_instructions"] == (
+        "Run the repository verification command."
     )
+    assert "evidence" not in client.calls[0]["state"]
+
+
+@pytest.mark.asyncio
+async def test_jev_groups_checks_by_their_exact_evidence_lists() -> None:
+    checks = (
+        Check("example", "diff", "Judge the diff", evidence=("git.diff",)),
+        Check("example", "worker", "Judge the worker", evidence=("worker",)),
+    )
+    response = SimpleNamespace(
+        nouls={check.key: SimpleNamespace(noul=0.6) for check in checks}
+    )
+    client = Client(result=response)
+
+    result = await JevForemanModel(client=client).assess(observation(), checks)
+
+    assert result.probability("example", "diff") == 0.6
+    assert result.probability("example", "worker") == 0.6
+    assert len(client.calls) == 2
+    states = [call["state"] for call in client.calls]
+    assert any("git_diff" in state and "worker_history" not in state for state in states)
+    assert any("worker_history" in state and "git_diff" not in state for state in states)
 
 
 @pytest.mark.asyncio

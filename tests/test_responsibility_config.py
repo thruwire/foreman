@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 
 import pytest
 
-from foreman.config import FactoryConfig
+from foreman.config import CommandEvidenceConfig, FactoryConfig
 from foreman.responsibilities import (
     Check,
     ResponsibilityConfigError,
@@ -124,6 +124,50 @@ instructions = "Is the worker unable to make forward progress?"
     assert checks["worker_stuck"] == "Is the worker unable to make forward progress?"
     assert "meaningful_progress" in checks
     assert "work_off_track" in checks
+
+
+def test_check_can_select_an_exact_evidence_provider_list(tmp_path) -> None:
+    write_config(
+        tmp_path,
+        "core.verification",
+        """
+[checks.tests_sufficient]
+instructions = "Does the selected evidence show sufficient verification?"
+evidence = ["git.diff", "command.pytest"]
+""".strip(),
+    )
+    factory_config = FactoryConfig(
+        command_evidence=(
+            CommandEvidenceConfig(id="pytest", command=("python", "-m", "pytest")),
+        )
+    )
+
+    registry = configured_registry(factory_config, config_dir=tmp_path)
+    verification = next(
+        item for item in registry.responsibilities if item.id == "core.verification"
+    )
+    checks = {check.check_id: check for check in verification.checks()}
+
+    assert checks["tests_sufficient"].evidence == (
+        "git.diff",
+        "command.pytest",
+    )
+    assert checks["needs_verification"].evidence is None
+
+
+def test_check_rejects_unknown_evidence_provider(tmp_path) -> None:
+    write_config(
+        tmp_path,
+        "core.verification",
+        """
+[checks.tests_sufficient]
+instructions = "Does the selected evidence show sufficient verification?"
+evidence = ["command.missing"]
+""".strip(),
+    )
+
+    with pytest.raises(ResponsibilityConfigError, match="unknown evidence providers"):
+        configured_registry(FactoryConfig(), config_dir=tmp_path)
 
 
 def test_builtin_class_rejects_missing_required_toml_check() -> None:

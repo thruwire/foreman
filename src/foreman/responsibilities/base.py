@@ -15,10 +15,16 @@ class Check:
     check_id: str
     instructions: str
     min_threshold: float | None = None
+    evidence: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         if self.min_threshold is not None and not 0.0 <= self.min_threshold <= 1.0:
             raise ValueError("check min_threshold must be between 0 and 1")
+        if self.evidence is not None:
+            if not self.evidence or any(not provider.strip() for provider in self.evidence):
+                raise ValueError("check evidence must contain non-empty provider ids")
+            if len(self.evidence) != len(set(self.evidence)):
+                raise ValueError("check evidence provider ids must be unique")
 
     @property
     def key(self) -> str:

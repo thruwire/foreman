@@ -6,6 +6,7 @@ These notes explain the experiment behind the implementation:
 - [Why Jev fits](why-jev.md) maps Jev's actual primitives to Foreman's needs.
 - [What Foreman is proving](what-foreman-proves.md) states the hypotheses and evidence boundaries.
 - [Runtime and event flow](runtime.md) is the implementation guide.
+- [Evidence providers](evidence.md) defines per-check evidence selection and CLI providers.
 - [Responsibility configuration and routing](routing.md) explains central definitions and matching.
 - [Extensions](extensions.md) defines registration, lifecycle, snapshots, and hierarchical routing.
 - [Coding-assistant hooks](hooks.md) describes the adapter-neutral attached-worker protocol.

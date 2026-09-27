@@ -212,6 +212,9 @@ def hook(
             data_dir=central_data_dir,
             config_path=central_config_path,
         )
+        config = config.model_copy(
+            update={"command_evidence": extensions.config.evidence.commands}
+        )
         activated = extensions.activate(config)
         registrations = activated.responsibilities
         runtime = AttachedWorkerRuntime(
@@ -314,6 +317,9 @@ def run(
         extensions = ExtensionManager(
             data_dir=central_data_dir,
             config_path=central_config_path,
+        )
+        config = config.model_copy(
+            update={"command_evidence": extensions.config.evidence.commands}
         )
         activated = extensions.activate(config)
         registrations = activated.responsibilities

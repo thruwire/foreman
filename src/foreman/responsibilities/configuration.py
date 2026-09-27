@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from foreman.config import FactoryConfig
+from foreman.evidence import unknown_evidence_providers
 from foreman.responsibilities.base import (
     Check,
     Responsibility,
@@ -33,12 +34,24 @@ class CheckFileConfig(BaseModel):
 
     instructions: str
     min_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
+    evidence: tuple[str, ...] | None = None
 
     @field_validator("instructions")
     @classmethod
     def nonempty_instructions(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("check instructions cannot be empty")
+        return value
+
+    @field_validator("evidence")
+    @classmethod
+    def valid_evidence(cls, value: tuple[str, ...] | None) -> tuple[str, ...] | None:
+        if value is None:
+            return value
+        if not value or any(not provider.strip() for provider in value):
+            raise ValueError("check evidence must contain non-empty provider ids")
+        if len(value) != len(set(value)):
+            raise ValueError("check evidence provider ids must be unique")
         return value
 
 
@@ -88,6 +101,7 @@ class ResponsibilityFileConfig(BaseModel):
                 check_id=check_id,
                 instructions=definition.instructions,
                 min_threshold=definition.min_threshold,
+                evidence=definition.evidence,
             )
             for check_id, definition in self.checks.items()
         )
@@ -266,6 +280,17 @@ def configured_registry(
             )
             for responsibility in enabled
         }
-        return ResponsibilityRegistry(enabled, routes=routes)
+        registry = ResponsibilityRegistry(enabled, routes=routes)
+        unknown_evidence = unknown_evidence_providers(
+            registry.checks(), factory_config.command_evidence
+        )
+        if unknown_evidence:
+            raise ResponsibilityConfigError(
+                "checks reference unknown evidence providers: "
+                + ", ".join(sorted(unknown_evidence))
+            )
+        return registry
+    except ResponsibilityConfigError:
+        raise
     except ValueError as error:
         raise ResponsibilityConfigError(f"invalid responsibility routing: {error}") from error

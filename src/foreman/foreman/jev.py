@@ -5,6 +5,7 @@ from collections.abc import Mapping, Sequence
 from math import isfinite
 from typing import Any
 
+from foreman.evidence import evidence_for
 from foreman.foreman.base import ForemanModelError
 from foreman.models import ForemanResult
 from foreman.observation import FactoryObservation
@@ -104,22 +105,43 @@ class JevForemanModel:
                 def __init__(self, *, instructions: str) -> None:
                     self.instructions = instructions
 
-        # One API call evaluates every active responsibility's checks in parallel.
-        questions = {check.key: Noul(instructions=check.instructions) for check in checks}
         client = self._client or self._make_client()
         if self._client is None:
             self._client = client
-        try:
+
+        groups: dict[tuple[str, ...], list[Check]] = {}
+        for check in checks:
+            groups.setdefault(evidence_for(check), []).append(check)
+
+        async def assess_group(
+            providers: tuple[str, ...], group: Sequence[Check]
+        ) -> ForemanResult:
+            questions = {
+                check.key: Noul(instructions=check.instructions) for check in group
+            }
             response = await asyncio.wait_for(
                 client.system_one(
-                    state=observation.model_dump(mode="json"),
+                    state=observation.state_for(providers),
                     questions=questions,
                     model=self.model,
                     timeout=self.timeout_seconds,
                 ),
                 timeout=self.timeout_seconds + 0.5,
             )
-            return parse_jev_response(response, checks)
+            return parse_jev_response(response, group)
+
+        try:
+            results = await asyncio.gather(
+                *(
+                    assess_group(providers, group)
+                    for providers, group in groups.items()
+                )
+            )
+            merged: dict[str, dict[str, float]] = {}
+            for result in results:
+                for responsibility_id, values in result.checks.items():
+                    merged.setdefault(responsibility_id, {}).update(values)
+            return ForemanResult(checks=merged)
         except TimeoutError as error:
             raise ForemanModelError("Jev assessment timed out") from error
         except ForemanModelError:

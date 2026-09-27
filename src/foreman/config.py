@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Callable
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+_CHECK_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
 def _environment_bool(value: str) -> bool:
@@ -14,6 +17,34 @@ def _environment_bool(value: str) -> bool:
     if normalized in {"0", "false", "no", "off"}:
         return False
     raise ValueError(f"invalid boolean environment value: {value!r}")
+
+
+class CommandEvidenceConfig(BaseModel):
+    """A trusted, bounded CLI evidence provider.
+
+    Commands are argv arrays and are never evaluated by a shell. They come from
+    Foreman's central configuration rather than the repository being supervised.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    command: tuple[str, ...] = Field(min_length=1)
+    timeout_seconds: float = Field(default=120.0, gt=0.0)
+
+    @field_validator("id")
+    @classmethod
+    def valid_id(cls, value: str) -> str:
+        if _CHECK_ID.fullmatch(value) is None:
+            raise ValueError(f"invalid command evidence id: {value!r}")
+        return value
+
+    @field_validator("command")
+    @classmethod
+    def valid_command(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not item or "\0" in item for item in value):
+            raise ValueError("command arguments must be non-empty and contain no NUL bytes")
+        return value
 
 
 class FactoryConfig(BaseModel):
@@ -49,6 +80,14 @@ class FactoryConfig(BaseModel):
     event_history_limit: int = Field(default=30, ge=1)
     worker_history_limit: int = Field(default=10, ge=1)
     hook_session_ttl_seconds: float = Field(default=604_800.0, gt=0.0)
+    command_evidence: tuple[CommandEvidenceConfig, ...] = ()
+
+    @model_validator(mode="after")
+    def unique_command_evidence_ids(self) -> FactoryConfig:
+        ids = [provider.id for provider in self.command_evidence]
+        if len(ids) != len(set(ids)):
+            raise ValueError("command evidence ids must be unique")
+        return self
 
     @classmethod
     def from_environment(cls) -> FactoryConfig:

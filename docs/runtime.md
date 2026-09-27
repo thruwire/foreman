@@ -32,7 +32,8 @@ offline tests; real runs default to Jev and Codex.
 
 1. A worker event enters the `asyncio.Queue`.
 2. The watcher drains adjacent events and applies the minimum assessment interval.
-3. Completion, failure, and stop events force an immediate cycle.
+3. After a coding worker completes, command evidence providers referenced by active checks run and
+   persist their bounded results before the completion event forces an immediate cycle.
 4. Git status/diff and current state become one bounded `FactoryObservation`.
 5. The registry supplies all active responsibilities' checks to one Jev request.
 6. Pydantic validates and groups the check outputs into one `ForemanResult`.
@@ -63,6 +64,14 @@ Both managed and attached runtimes compose configured extensions from validated 
 before routing. Activation is local-only. Managed runs persist `EXTENSIONS_ACTIVATED` before
 `FOREMAN_ROUTED`; attached sessions pin extension IDs and snapshot revisions to prevent the active
 responsibility set from changing silently during a session. See [Extensions](extensions.md).
+
+Both runtimes also load command evidence providers from the same central config. Managed runs
+execute referenced providers between coding-worker completion and `WORKER_COMPLETED`; attached
+sessions execute them on `Stop` before building the observation. Each Jev check receives either its
+explicit `evidence` list or the built-in default provider list. Checks with identical selections
+remain batched into one Jev call; different selections use separately filtered calls. Exit status
+and output are evidence interpreted by the check, not hard-coded policy. See
+[Evidence providers](evidence.md).
 
 ## Test evidence from worker output
 

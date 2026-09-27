@@ -52,9 +52,10 @@ adapter and registry entry, not another supervision runtime.
   the tool call; steering becomes additional model context.
 - `PostToolUse` records the tool arguments and result, then performs the same assessment. Steering
   becomes additional context, while stop or escalation output interrupts normal processing.
-- `Stop` temporarily marks the attached worker complete so completion and verification
-  responsibilities can decide whether the turn may finish. If work remains, Foreman requests one
-  automatic continuation. `stop_hook_active` prevents an infinite continuation loop.
+- `Stop` temporarily marks the attached worker complete, runs command evidence providers selected
+  by active checks, then lets the resulting Jev assessments and responsibilities decide whether the
+  turn may finish. If work remains, Foreman requests one automatic continuation.
+  `stop_hook_active` prevents an infinite continuation loop.
 - `SessionEnd` deletes the attached-session record.
 
 The Codex adapter validates input against the documented Codex event names and fields. Unsupported
@@ -89,3 +90,8 @@ Hook processing never authenticates or synchronizes an extension. Those are expl
 lifecycle operations outside the latency-sensitive hook path. See [Extensions](extensions.md).
 Coding-assistant plugin packaging remains separate; this command establishes the process protocol
 that a future plugin can invoke.
+
+Command evidence is likewise assistant-neutral: a Codex or future assistant plugin only forwards
+lifecycle events to `foreman hook`. Foreman owns provider invocation and check-specific evidence,
+so a CLI verifier does not need a separate SDK integration for every coding assistant. See
+[Evidence providers](evidence.md).
