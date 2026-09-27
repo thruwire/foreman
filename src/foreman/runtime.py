@@ -2,10 +2,16 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
+import re
+import signal
+import sys
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 from foreman.config import FactoryConfig
@@ -46,6 +52,183 @@ IMPORTANT_EVENTS = {
     EventType.WORKER_STOPPED,
     EventType.VERIFICATION_COMPLETED,
 }
+
+VerificationStatus = Literal["completed", "timed_out", "launch_failed"]
+
+
+@dataclass(frozen=True)
+class VerificationOutcome:
+    """Structured result of one runtime-owned verification command run."""
+
+    status: VerificationStatus
+    returncode: int | None
+    pid: int | None
+    passed: int
+    failed: int
+    errored: int
+    skipped: int
+    summary: str
+    detail: str = ""
+    elapsed_seconds: float = 0.0
+
+
+_VERIFICATION_SUMMARY_RE = re.compile(
+    r"^(?:=+\s*)?"
+    r"(?P<parts>(?:\d+\s+[A-Za-z]+)(?:\s*,\s*\d+\s+[A-Za-z]+)*)"
+    r"(?:\s+in\s+[\d.]+s)?"
+    r"(?:\s*=+)?$"
+)
+_VERIFICATION_COUNT_RE = re.compile(r"(\d+)\s+([A-Za-z]+)")
+
+
+def _parse_verification_counts(output: str) -> tuple[dict[str, int], str]:
+    """Parse the last pytest-style summary line in command output.
+
+    Handles failure-first orderings ("1 failed, 3 passed") as well as the
+    usual passed-first form, with or without the trailing "in Ns" timing.
+    Returns (counts, summary_line); counts is empty when no summary line with
+    recognized test counts is found.
+    """
+    for line in reversed(output.splitlines()):
+        match = _VERIFICATION_SUMMARY_RE.match(line.strip())
+        if not match:
+            continue
+        counts = {"passed": 0, "failed": 0, "errored": 0, "skipped": 0}
+        for count_text, word in _VERIFICATION_COUNT_RE.findall(match.group("parts")):
+            count = int(count_text)
+            normalized = word.lower()
+            if normalized == "passed":
+                counts["passed"] += count
+            elif normalized == "failed":
+                counts["failed"] += count
+            elif normalized in ("error", "errors"):
+                counts["errored"] += count
+            elif normalized == "skipped":
+                counts["skipped"] += count
+        if any(counts.values()):
+            return counts, line.strip()[:200]
+    return {}, ""
+
+
+async def _terminate_process_tree(
+    proc: asyncio.subprocess.Process, *, grace_seconds: float = 5.0
+) -> None:
+    """Terminate a subprocess and any children, then reap it.
+
+    On POSIX the child runs in its own process group (see
+    run_verification_command), so the whole group is signalled and no
+    orphaned grandchildren survive. The process is always waited on, so no
+    zombie remains. On Windows terminate()/kill() plus wait() releases the
+    process handles.
+    """
+    if proc.returncode is not None:
+        return
+    if os.name == "posix" and proc.pid is not None:
+        for sig in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(proc.pid, sig)
+            except (ProcessLookupError, PermissionError):
+                break
+            try:
+                await asyncio.wait_for(proc.wait(), grace_seconds)
+                return
+            except TimeoutError:
+                continue
+    else:
+        proc.terminate()
+        try:
+            await asyncio.wait_for(proc.wait(), grace_seconds)
+            return
+        except TimeoutError:
+            pass
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+    await proc.wait()
+
+
+async def run_verification_command(
+    command: list[str],
+    *,
+    cwd: Path | str,
+    timeout_seconds: float,
+    kill_grace_seconds: float = 5.0,
+) -> VerificationOutcome:
+    """Run a verification command with a timeout, fully reaping the subprocess.
+
+    On timeout the process (and, on POSIX, its whole process group) is
+    terminated and then waited on: no zombies, no orphaned children. If the
+    awaiting task is cancelled (e.g. factory shutdown while verification is
+    still running), the subprocess is likewise terminated and reaped before
+    the cancellation propagates. Returns a structured outcome, including
+    parsed pytest counts when the output contains a summary line. Never
+    raises for command failures.
+    """
+    started = time.monotonic()
+    spawn_kwargs: dict[str, object] = {}
+    if os.name == "posix":
+        # Own process group so timeout cleanup can kill the whole tree.
+        spawn_kwargs["start_new_session"] = True
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *command,
+            cwd=str(cwd),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            stdin=asyncio.subprocess.DEVNULL,
+            **spawn_kwargs,
+        )
+    except OSError as error:
+        return VerificationOutcome(
+            status="launch_failed",
+            returncode=None,
+            pid=None,
+            passed=0,
+            failed=0,
+            errored=0,
+            skipped=0,
+            summary="",
+            detail=f"could not start verification command: {error}",
+            elapsed_seconds=time.monotonic() - started,
+        )
+    pid = proc.pid
+    try:
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout_seconds)
+    except TimeoutError:
+        await _terminate_process_tree(proc, grace_seconds=kill_grace_seconds)
+        return VerificationOutcome(
+            status="timed_out",
+            returncode=proc.returncode,
+            pid=pid,
+            passed=0,
+            failed=0,
+            errored=0,
+            skipped=0,
+            summary=f"verification timed out after {timeout_seconds:g}s",
+            elapsed_seconds=time.monotonic() - started,
+        )
+    except asyncio.CancelledError:
+        # The awaiting task was cancelled: terminate and reap the child so
+        # no zombie or orphaned subprocess survives, then propagate.
+        await _terminate_process_tree(proc, grace_seconds=kill_grace_seconds)
+        raise
+    output = stdout.decode("utf-8", errors="replace")
+    counts, summary = _parse_verification_counts(output)
+    elapsed = time.monotonic() - started
+    if not counts:
+        summary = f"exit {proc.returncode}: no pytest summary line found"
+    return VerificationOutcome(
+        status="completed",
+        returncode=proc.returncode,
+        pid=pid,
+        passed=counts.get("passed", 0),
+        failed=counts.get("failed", 0),
+        errored=counts.get("errored", 0),
+        skipped=counts.get("skipped", 0),
+        summary=summary,
+        elapsed_seconds=elapsed,
+    )
 
 
 class FactoryRuntime:
@@ -239,6 +422,22 @@ class FactoryRuntime:
             record.termination_reason = "worker_exception"
             record.stderr = f"{record.stderr}\n{type(error).__name__}: {error}".strip()
         finally:
+            verification_outcome: VerificationOutcome | None = None
+            verification_cancelled: asyncio.CancelledError | None = None
+            if record.worker_type is WorkerType.CODING and record.status is WorkerStatus.COMPLETED:
+                # Verification is part of the worker's terminal lifecycle: it
+                # runs while the worker is still tracked in active_workers and
+                # finishes — recording TEST_RESULT — before the terminal event
+                # is emitted. The supervisor therefore cannot assess the
+                # completion event, select FINISH, and close the factory while
+                # verification is still running.
+                try:
+                    verification_outcome = await self._verify_tests_after_worker(record)
+                except asyncio.CancelledError as error:
+                    # Shutdown raced verification. run_verification_command
+                    # already terminated and reaped the subprocess; finish
+                    # lifecycle bookkeeping below, then propagate.
+                    verification_cancelled = error
             if record.worker_id in self.state.active_workers:
                 self.state.active_workers.remove(record.worker_id)
             if record.status is WorkerStatus.COMPLETED:
@@ -274,16 +473,71 @@ class FactoryRuntime:
                 terminal_type = EventType.WORKER_STOPPED
             else:
                 terminal_type = EventType.WORKER_FAILED
-            await self.emit(
-                terminal_type,
-                {
-                    "worker_id": record.worker_id,
-                    "worker_type": record.worker_type.value,
-                    "status": record.status.value,
-                    "exit_code": record.exit_code,
-                    "termination_reason": record.termination_reason,
-                },
-            )
+            terminal_payload: dict[str, object] = {
+                "worker_id": record.worker_id,
+                "worker_type": record.worker_type.value,
+                "status": record.status.value,
+                "exit_code": record.exit_code,
+                "termination_reason": record.termination_reason,
+            }
+            if verification_outcome is not None:
+                terminal_payload["verification"] = {
+                    "status": verification_outcome.status,
+                    "returncode": verification_outcome.returncode,
+                    "passed": verification_outcome.passed,
+                    "failed": verification_outcome.failed,
+                    "errored": verification_outcome.errored,
+                    "skipped": verification_outcome.skipped,
+                    "summary": verification_outcome.summary,
+                }
+            await self.emit(terminal_type, terminal_payload)
+            if verification_cancelled is not None:
+                raise verification_cancelled
+
+    def _verification_command(self) -> list[str]:
+        return [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-q",
+            "--no-header",
+            "-p",
+            "no:cacheprovider",
+        ]
+
+    async def _verify_tests_after_worker(self, record: WorkerRecord) -> VerificationOutcome | None:
+        """Opt-in runtime-owned test verification after a coding worker completes.
+
+        Disabled unless `verify_tests_on_complete` is set. Evidence-gathering
+        only: the outcome is reported as a TEST_RESULT event and never raises
+        for command failures. Task cancellation propagates after the
+        verification subprocess is terminated and reaped.
+        """
+        if not self.config.verify_tests_on_complete:
+            return None
+        outcome = await run_verification_command(
+            self._verification_command(),
+            cwd=self.repository,
+            timeout_seconds=self.config.test_command_timeout,
+        )
+        await self._worker_emit(
+            record.worker_id,
+            EventType.TEST_RESULT,
+            {
+                "worker_id": record.worker_id,
+                "source": "runtime_verification",
+                "status": outcome.status,
+                "returncode": outcome.returncode,
+                "passed": outcome.passed,
+                "failed": outcome.failed,
+                "errored": outcome.errored,
+                "skipped": outcome.skipped,
+                "summary": outcome.summary,
+                "detail": outcome.detail,
+                "elapsed_seconds": outcome.elapsed_seconds,
+            },
+        )
+        return outcome
 
     async def start_worker(self, worker_type: WorkerType) -> WorkerRecord:
         if len(self.state.active_workers) >= self.config.max_concurrent_workers:
