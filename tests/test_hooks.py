@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -304,6 +305,18 @@ def test_session_store_hashes_ids_and_purges_expired_records(tmp_path) -> None:
     assert "unsafe" not in path.name
     assert store.purge_expired() == 1
     assert not path.exists()
+
+
+def test_session_store_save_works_without_fchmod(monkeypatch, tmp_path) -> None:
+    monkeypatch.delattr(os, "fchmod", raising=False)
+    store = AttachedSessionStore(tmp_path / "data", ttl_seconds=60)
+    session = store.new("thr-123", tmp_path)
+
+    store.save(session)
+
+    restored = store.load("thr-123")
+    assert restored is not None
+    assert restored.session_id == "thr-123"
 
 
 @pytest.mark.asyncio

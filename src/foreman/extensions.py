@@ -235,7 +235,10 @@ class ExtensionSnapshotStore:
         )
         try:
             try:
-                os.fchmod(descriptor, 0o600)
+                if hasattr(os, "fchmod"):
+                    os.fchmod(descriptor, 0o600)
+                else:
+                    os.chmod(temporary, 0o600)
             except OSError:
                 pass
             with os.fdopen(descriptor, "w", encoding="utf-8") as handle:

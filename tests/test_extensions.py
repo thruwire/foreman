@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
@@ -16,6 +17,7 @@ from foreman.extensions import (
     ExtensionManager,
     ExtensionManifest,
     ExtensionSnapshot,
+    ExtensionSnapshotStore,
     ResponsibilityRegistration,
     discover_extensions,
 )
@@ -207,6 +209,23 @@ def test_discovery_imports_only_configured_entry_points(monkeypatch) -> None:
 
     assert list(discovered) == ["example"]
     assert loaded == ["example"]
+
+
+def test_snapshot_store_save_works_without_fchmod(monkeypatch, tmp_path) -> None:
+    monkeypatch.delattr(os, "fchmod", raising=False)
+    store = ExtensionSnapshotStore(tmp_path / "data")
+    snapshot = ExtensionSnapshot(
+        extension_id="example",
+        schema_version=1,
+        revision="revision-1",
+        payload={},
+    )
+
+    store.save(snapshot)
+
+    restored = store.load("example")
+    assert restored is not None
+    assert restored.revision == "revision-1"
 
 
 def test_extension_responsibilities_use_existing_configuration_pipeline(tmp_path) -> None:
