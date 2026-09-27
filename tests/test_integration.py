@@ -245,6 +245,9 @@ evidence = ["worker", "command.smoke"]
     runtime_config = config(
         assessment_min_interval_seconds=0.02,
         periodic_assessment_seconds=0.02,
+        # The provider intentionally spans several assessment cycles. Keep the
+        # iteration guard comfortably above scheduler-dependent boundary timing.
+        max_iterations=50,
         command_evidence=(
             CommandEvidenceConfig(
                 id="smoke",
