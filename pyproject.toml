@@ -1,15 +1,27 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "foreman-factory"
-version = "0.3.0"
+name = "foreman-core"
+version = "0.4.0"
 description = "A semantic supervisory loop for coding agents"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Foreman contributors" }]
+keywords = ["ai", "agents", "coding-agents", "supervision", "jev"]
+classifiers = [
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development",
+]
 dependencies = [
   "keyring>=25,<27",
   "pydantic>=2.7,<3",
@@ -28,6 +40,12 @@ dev = [
 
 [project.scripts]
 foreman = "foreman.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/thruwire/foreman"
+Documentation = "https://github.com/thruwire/foreman/tree/main/docs"
+Repository = "https://github.com/thruwire/foreman.git"
+Issues = "https://github.com/thruwire/foreman/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]

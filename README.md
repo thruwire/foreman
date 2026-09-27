@@ -45,13 +45,13 @@ verification is needed, or human input is required.
 
 **Generative models work. Foreman watches the work.**
 
-Foreman is an architectural experiment, not a claim that this design is already better than a
-conventional coding-agent harness.
+Foreman separates software-engineering work from continuous semantic supervision. Its effectiveness
+depends on the quality of the configured checks, evidence, thresholds, and underlying models.
 
 ## Documentation
 
 - [Theory: semantic supervision](docs/theory.md)
-- [Why Jev fits the experiment](docs/why-jev.md)
+- [Why Jev fits Foreman](docs/why-jev.md)
 - [What Foreman is proving](docs/what-foreman-proves.md)
 - [Runtime and event flow](docs/runtime.md)
 - [Evidence providers](docs/evidence.md)
@@ -106,8 +106,8 @@ rebuilding the coding agent itself.
 
 ## The factory floor
 
-V1 runs one coding worker at a time. By default, a real worker is a Codex App Server thread and
-turn launched over its JSONL protocol:
+Foreman currently runs one coding worker at a time. By default, a real worker is a Codex App Server
+thread and turn launched over its JSONL protocol:
 
 ```text
 codex app-server --listen stdio://
@@ -283,7 +283,16 @@ invent one. Its minimum assessment interval defaults to five seconds and is conf
 
 ## Installation
 
-From a fresh checkout:
+Install the published package:
+
+```bash
+python -m pip install foreman-core
+```
+
+The distribution is named `foreman-core`; it installs the `foreman` command and the `foreman`
+Python package.
+
+For development, install from a fresh checkout:
 
 ```bash
 python3.12 -m venv .venv
@@ -460,15 +469,14 @@ printing secrets to their output.
 - Repository observations are necessarily incomplete and bounded.
 - The selected coding agent remains responsible for software-engineering reasoning and tool use.
 - Codex App Server is currently experimental and its protocol may change between CLI releases.
-- V1 runs one coding worker at a time.
+- Foreman currently runs one coding worker at a time.
 - Local execution is not isolated.
 - Persistence is useful for inspection, not production-grade durable execution.
 - A verifier reports evidence through the same observation channel; there is no formal proof of
   correctness.
-- This is an architectural experiment, not a production software factory.
 
-## Future experiments
+## Roadmap
 
 Natural next steps include simultaneous workers, per-worker and factory-wide assessments, alternate
 coding agents or fast decision models, dynamic assessment frequency, calibrated policies, durable
-execution, and isolated worker environments. They are intentionally outside this small V1.
+execution, and isolated worker environments. They are outside the current scope.

@@ -15,7 +15,7 @@ software or superiority over another agent system.
    active Codex turn; repeated stuckness still reaches stop and retry paths.
 5. **Independent verification can be a policy outcome rather than a hard-coded workflow step.** It
    starts only when the semantic evidence crosses the verification boundary and cannot loop.
-6. **The experiment can be inspected.** State and an append-only event timeline reconstruct what the
+6. **The system can be inspected.** State and an append-only event timeline reconstruct what the
    supervisor saw and did.
 
 The deterministic simulation proves these software properties without depending on Jev or Codex.
@@ -44,4 +44,4 @@ changes can be replayed, and false positive/negative interventions can be counte
 
 A convincing evaluation would need a representative job set, blinded outcome labels, baselines,
 cost and latency measurements, calibration curves for each dimension, and intervention ablations.
-This V1 supplies the runtime and evidence trail for that later work.
+The current implementation supplies the runtime and evidence trail for that later work.

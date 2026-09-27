@@ -1,6 +1,6 @@
 # Foreman documentation
 
-These notes explain the experiment behind the implementation:
+These notes explain Foreman's design and implementation:
 
 - [Theory: semantic supervision](theory.md) describes the two-loop architecture.
 - [Why Jev fits](why-jev.md) maps Jev's actual primitives to Foreman's needs.
@@ -11,5 +11,6 @@ These notes explain the experiment behind the implementation:
 - [Extensions](extensions.md) defines registration, lifecycle, snapshots, and hierarchical routing.
 - [Coding-assistant hooks](hooks.md) describes the adapter-neutral attached-worker protocol.
 - [Live steering](steering.md) explains how Jev guidance reaches an active Codex turn.
+- [Releasing](releasing.md) documents the build and trusted-publishing process.
 
 The root [README](../README.md) remains the installation and command reference.

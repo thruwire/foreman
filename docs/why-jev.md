@@ -1,4 +1,4 @@
-# Why Jev fits the experiment
+# Why Jev fits Foreman
 
 Foreman needs a model to turn heterogeneous factory evidence into several narrow, uncertain
 judgments. TypeSafe AI's Jev has an interface shaped around that job.
@@ -37,7 +37,7 @@ persists the scores, and lets code decide whether an action is allowed.
 
 ## Speed as an architectural enabler
 
-The experiment is interesting only if supervision is materially cheaper and faster than the work it
+The architecture is useful only if supervision is materially cheaper and faster than the work it
 watches. TypeSafe positions Jev for low-latency structured decisions rather than text generation.
 Foreman does not depend on a marketing latency number: calls have explicit timeouts, events are
 debounced, and the assessment interval is configurable.
