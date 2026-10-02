@@ -6,7 +6,9 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from typer.testing import CliRunner
 
+from foreman.cli import app
 from foreman.models import EventType, FactoryAssessment, FactoryEvent, WorkerRecord, WorkerType
 from foreman.persistence import PersistenceError, RunStore
 
@@ -112,6 +114,90 @@ def test_malformed_state_handling(state, tmp_path) -> None:
     (store.run_dir(state.run_id) / "state.json").write_text("{broken", encoding="utf-8")
     with pytest.raises(PersistenceError, match="malformed"):
         store.load_state(state.run_id)
+
+
+@pytest.mark.parametrize("payload", [None, [], "invalid", 1, False])
+def test_non_object_state_handling(state, tmp_path, payload) -> None:
+    store = RunStore(tmp_path)
+    store.initialize(state)
+    broken = store.run_dir("broken")
+    broken.mkdir()
+    path = broken / "state.json"
+    saved = json.dumps(payload)
+    path.write_text(saved, encoding="utf-8")
+
+    with pytest.raises(PersistenceError, match="malformed"):
+        store.load_state("broken")
+
+    assert list(store.list_states()) == [state]
+    assert path.read_text(encoding="utf-8") == saved
+
+
+@pytest.mark.parametrize(
+    "workers",
+    [None, {}, {"worker": {}}, "invalid", 1, False, [None], [[]], ["invalid"], [1], [False]],
+)
+def test_invalid_workers_handling(state, tmp_path, workers) -> None:
+    store = RunStore(tmp_path)
+    store.initialize(state)
+    broken = store.run_dir("broken")
+    broken.mkdir()
+    payload = state.model_dump(mode="json")
+    payload["workers"] = workers
+    path = broken / "state.json"
+    saved = json.dumps(payload)
+    path.write_text(saved, encoding="utf-8")
+
+    with pytest.raises(PersistenceError, match="malformed"):
+        store.load_state("broken")
+
+    assert list(store.list_states()) == [state]
+    assert path.read_text(encoding="utf-8") == saved
+
+
+def test_legacy_worker_duration_is_removed_only_in_memory(state, tmp_path) -> None:
+    worker = WorkerRecord(worker_id="worker-1", worker_type=WorkerType.CODING, mission="work")
+    state.workers.append(worker)
+    store = RunStore(tmp_path)
+    store.initialize(state)
+    path = store.run_dir(state.run_id) / "state.json"
+    payload = state.model_dump(mode="json")
+    payload["workers"][0]["duration_seconds"] = 1.0
+    saved = json.dumps(payload)
+    path.write_text(saved, encoding="utf-8")
+
+    assert store.load_state(state.run_id).workers == [worker]
+    assert path.read_text(encoding="utf-8") == saved
+
+
+def test_state_recovery_without_workers(state, tmp_path) -> None:
+    store = RunStore(tmp_path)
+    store.initialize(state)
+    path = store.run_dir(state.run_id) / "state.json"
+    payload = state.model_dump(mode="json")
+    payload.pop("workers")
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert store.load_state(state.run_id) == state
+
+
+@pytest.mark.parametrize("payload", [None, {"workers": [None]}])
+def test_cli_handles_malformed_state(state, tmp_path, payload) -> None:
+    store = RunStore(tmp_path)
+    store.initialize(state)
+    broken = store.run_dir("broken")
+    broken.mkdir()
+    (broken / "state.json").write_text(json.dumps(payload), encoding="utf-8")
+    runner = CliRunner()
+
+    inspected = runner.invoke(app, ["inspect", "broken", "--repo", str(tmp_path)])
+    assert inspected.exit_code == 2
+    assert "malformed" in inspected.output
+
+    listed = runner.invoke(app, ["runs", "--repo", str(tmp_path)])
+    assert listed.exit_code == 0
+    assert state.run_id in listed.output
+    assert "broken" not in listed.output
 
 
 def test_malformed_event_handling(state, tmp_path) -> None:

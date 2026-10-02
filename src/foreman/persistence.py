@@ -87,8 +87,15 @@ class RunStore:
         path = self.run_dir(run_id) / "state.json"
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("state must be an object")
+            workers = payload.get("workers", [])
+            if not isinstance(workers, list):
+                raise ValueError("workers must be a list")
             # V0.1 briefly persisted this derived property; tolerate those inspectable runs.
-            for worker in payload.get("workers", []):
+            for index, worker in enumerate(workers):
+                if not isinstance(worker, dict):
+                    raise ValueError(f"workers[{index}] must be an object")
                 worker.pop("duration_seconds", None)
             self._migrate_state(payload)
             return FactoryState.model_validate(payload)
