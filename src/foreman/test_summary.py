@@ -56,10 +56,11 @@ def parse_pytest_summary_line(line: str) -> PytestSummary | None:
     """Parse one pytest summary line into a structured outcome.
 
     Handles both passed-first and failure-first orderings ("1 failed, 3
-    passed"), the "N error"/"N errors" forms, and skipped counts, with or
-    without the trailing "in Ns" timing and the "=== ... ===" wrappers pytest
-    prints. Returns None for lines that are not test summaries, or for
-    summaries with no recognized test counts (e.g. "2 warnings in 0.1s").
+    passed"), the "N error"/"N errors" forms, skipped counts, and pytest's
+    xfailed/xpassed outcomes (counted as skipped), with or without the trailing
+    "in Ns" timing and the "=== ... ===" wrappers pytest prints. Returns None
+    for lines that are not test summaries, or for summaries with no recognized
+    test counts (e.g. "2 warnings in 0.1s").
     """
     text = line.strip()
     if not text:
@@ -77,7 +78,9 @@ def parse_pytest_summary_line(line: str) -> PytestSummary | None:
             failed += count
         elif normalized in ("error", "errors"):
             errored += count
-        elif normalized == "skipped":
+        elif normalized in ("skipped", "xfailed", "xpassed"):
+            # xfail/xpass are known outcomes pytest prints on the summary line;
+            # without them a run of only expected failures looked like "no tests".
             skipped += count
     if not (passed or failed or errored or skipped):
         return None

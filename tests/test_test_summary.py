@@ -64,6 +64,14 @@ from foreman.test_summary import (
             "1 failed, 1 passed, 2 warnings in 0.50s",
             PytestSummary(passed=1, failed=1, line="1 failed, 1 passed, 2 warnings in 0.50s"),
         ),
+        (
+            "2 xfailed in 0.12s",
+            PytestSummary(skipped=2, line="2 xfailed in 0.12s"),
+        ),
+        (
+            "1 passed, 2 xfailed, 1 xpassed in 0.40s",
+            PytestSummary(passed=1, skipped=3, line="1 passed, 2 xfailed, 1 xpassed in 0.40s"),
+        ),
     ],
 )
 def test_parse_pytest_summary_line_exact_outcomes(
