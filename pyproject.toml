@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "foreman-core"
-version = "0.4.2"
+version = "0.4.3"
 description = "An agent supervisor and software factory foreman powered by TypeSafe’s Jev model"
 readme = "README.md"
 requires-python = ">=3.11"
