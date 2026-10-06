@@ -35,6 +35,7 @@ from foreman.models import EventType, FactoryStatus, WorkerType
 from foreman.paths import foreman_config_path, foreman_data_dir
 from foreman.persistence import PersistenceError, RunStore
 from foreman.repository_scope import repository_in_scope
+from foreman.request_budget import JevRequestBudget
 from foreman.responsibilities import (
     ResponsibilityConfigError,
     configured_registry,
@@ -266,9 +267,16 @@ def hook(
             asyncio.run(extensions.close())
             sys.stdout.write("{}\n")
             return
+        budget = JevRequestBudget(config.jev_pair_budget_bytes, config.jev_request_budget_bytes)
         runtime = AttachedWorkerRuntime(
-            model=JevForemanModel(timeout_seconds=config.jev_timeout_seconds),
-            router=JevResponsibilityRouter(timeout_seconds=config.jev_timeout_seconds),
+            model=JevForemanModel(
+                timeout_seconds=config.jev_timeout_seconds,
+                budget=budget,
+            ),
+            router=JevResponsibilityRouter(
+                timeout_seconds=config.jev_timeout_seconds,
+                budget=budget,
+            ),
             responsibilities=responsibilities,
             config=config,
             store=AttachedSessionStore(
@@ -378,14 +386,21 @@ def run(
                 item.implementation.id: item.definition for item in registrations
             },
         )
+        budget = JevRequestBudget(config.jev_pair_budget_bytes, config.jev_request_budget_bytes)
         runtime = FactoryRuntime(
             repository=repo,
             job=job,
-            model=JevForemanModel(timeout_seconds=config.jev_timeout_seconds),
+            model=JevForemanModel(
+                timeout_seconds=config.jev_timeout_seconds,
+                budget=budget,
+            ),
             config=config,
             event_sink=TerminalRenderer(console),
             responsibilities=responsibilities,
-            router=JevResponsibilityRouter(timeout_seconds=config.jev_timeout_seconds),
+            router=JevResponsibilityRouter(
+                timeout_seconds=config.jev_timeout_seconds,
+                budget=budget,
+            ),
             routing_groups=activated.routing_groups,
             active_extension_ids=activated.extension_ids,
             extension_snapshot_revisions=dict(activated.snapshot_revisions),

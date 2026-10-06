@@ -11,6 +11,16 @@ from foreman.persistence import RunStore
 
 
 @pytest.mark.asyncio
+async def test_observation_preserves_full_job_for_budget_validation(tmp_path) -> None:
+    job = "BEGIN " + "x" * 2000 + " END"
+    state = FactoryState(run_id="run-1", job=job, repository=str(tmp_path))
+    store = RunStore(tmp_path)
+    store.initialize(state)
+    observation = await ObservationBuilder(store, FactoryConfig(output_limit=100)).build(state)
+    assert observation.original_job == job
+
+
+@pytest.mark.asyncio
 async def test_observation_reads_repository_agents_md_without_persisting_it(tmp_path) -> None:
     marker = "run the repository-specific verification command"
     (tmp_path / "AGENTS.md").write_text(marker, encoding="utf-8")

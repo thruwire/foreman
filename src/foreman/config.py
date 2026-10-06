@@ -53,6 +53,8 @@ class FactoryConfig(BaseModel):
     assessment_min_interval_seconds: float = Field(default=5.0, ge=0.0)
     periodic_assessment_seconds: float = Field(default=30.0, gt=0.0)
     jev_timeout_seconds: float = Field(default=10.0, gt=0.0)
+    jev_pair_budget_bytes: int = Field(default=30_000, ge=512, le=30_000)
+    jev_request_budget_bytes: int = Field(default=60_000, ge=512, le=60_000)
     worker_timeout_seconds: float = Field(default=3_600.0, gt=0.0)
     overall_timeout_seconds: float = Field(default=7_200.0, gt=0.0)
     graceful_termination_seconds: float = Field(default=5.0, ge=0.0)
@@ -98,6 +100,8 @@ class FactoryConfig(BaseModel):
             ),
             "FOREMAN_PERIODIC_ASSESSMENT_SECONDS": ("periodic_assessment_seconds", float),
             "FOREMAN_JEV_TIMEOUT_SECONDS": ("jev_timeout_seconds", float),
+            "FOREMAN_JEV_PAIR_BUDGET_BYTES": ("jev_pair_budget_bytes", int),
+            "FOREMAN_JEV_REQUEST_BUDGET_BYTES": ("jev_request_budget_bytes", int),
             "FOREMAN_WORKER_TIMEOUT_SECONDS": ("worker_timeout_seconds", float),
             "FOREMAN_OVERALL_TIMEOUT_SECONDS": ("overall_timeout_seconds", float),
             "FOREMAN_MAX_WORKERS": ("max_workers", int),

@@ -12,6 +12,7 @@ from typing import Annotated, Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
+from foreman.request_budget import JevRequestBudget, RequestBudgetError
 from foreman.responsibilities import ResponsibilityRegistry, ResponsibilityRoute
 
 _ROUTE_GROUP_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -376,10 +377,12 @@ class JevResponsibilityRouter:
         client: Any | None = None,
         timeout_seconds: float = 10.0,
         model: str = "jev-latest",
+        budget: JevRequestBudget | None = None,
     ) -> None:
         self._client = client
         self.timeout_seconds = timeout_seconds
         self.model = model
+        self.budget = budget or JevRequestBudget()
         self._owns_client = client is None
 
     def _make_client(self) -> Any:
@@ -480,9 +483,17 @@ class JevResponsibilityRouter:
         if self._client is None:
             self._client = client
         try:
+            fitted = self.budget.fit(
+                {"work": work},
+                {
+                    _routing_key(candidate_id, prefix=prefix): route.instructions or ""
+                    for candidate_id, route in routes.items()
+                },
+                compact=False,
+            )
             response = await asyncio.wait_for(
                 client.system_one(
-                    state={"work": work},
+                    state=fitted.state,
                     questions=questions,
                     model=self.model,
                     timeout=self.timeout_seconds,
@@ -494,6 +505,8 @@ class JevResponsibilityRouter:
             raise ResponsibilityRoutingError("Jev responsibility routing timed out") from error
         except ResponsibilityRoutingError:
             raise
+        except RequestBudgetError as error:
+            raise ResponsibilityRoutingError(str(error)) from error
         except Exception as error:
             raise ResponsibilityRoutingError(
                 f"Jev responsibility routing failed: {type(error).__name__}: {error}"

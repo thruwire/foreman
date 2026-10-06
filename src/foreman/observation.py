@@ -20,6 +20,7 @@ class FactoryObservation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     original_job: str
+    current_operation: dict[str, Any] = Field(default_factory=dict)
     run_id: str
     factory_status: str
     iteration: int = Field(ge=0)
@@ -69,6 +70,7 @@ class FactoryObservation(BaseModel):
             field: values[field]
             for field in (
                 "original_job",
+                "current_operation",
                 "run_id",
                 "factory_status",
                 "iteration",
@@ -326,6 +328,7 @@ async def build_observation(
     config: FactoryConfig,
     *,
     recent_events: list[dict[str, Any]],
+    current_operation: dict[str, Any] | None = None,
     repository_instruction_files: tuple[str, ...] = (
         "AGENTS.override.md",
         "AGENTS.md",
@@ -363,7 +366,8 @@ async def build_observation(
         latest_command_evidence[result.provider_id] = result
 
     return FactoryObservation(
-        original_job=_tail(state.job, config.field_limit),
+        original_job=state.job,
+        current_operation=current_operation or {},
         run_id=state.run_id,
         factory_status=state.status.value,
         iteration=state.iteration,

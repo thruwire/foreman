@@ -100,6 +100,72 @@ class FailingModel(StubModel):
         raise ForemanModelError("Jev unavailable")
 
 
+@pytest.mark.asyncio
+async def test_current_operation_is_separate_from_truncated_event_history(tmp_path) -> None:
+    model = StubModel()
+    supervisor, store, _ = runtime(tmp_path, model=model, runtime_config=config(output_limit=100))
+    await handle(supervisor, event("UserPromptSubmit", tmp_path, prompt="Fix the tests"))
+    tool_input = {"command": "BEGIN " + "x" * 2000 + " END"}
+    await handle(supervisor, event(
+        "PreToolUse", tmp_path, tool_name="shell", tool_input=tool_input,
+    ))
+    observation = model.calls[-1][0]
+    assert observation.current_operation["tool_input"] == tool_input
+    assert observation.state_for(("git.diff",))["current_operation"]["tool_input"] == tool_input
+    assert len(store.load("thr-attached-123").recent_events[-1]["summary"]) < len(str(tool_input))
+
+
+@pytest.mark.asyncio
+async def test_current_operation_overflow_keeps_hook_fail_closed(tmp_path) -> None:
+    from foreman.foreman import JevForemanModel
+
+    class NoNetwork:
+        async def system_one(self, **kwargs):
+            pytest.fail("oversized essential operation must not reach the API")
+
+    supervisor, _, _ = runtime(tmp_path, model=JevForemanModel(client=NoNetwork()))
+    await handle(supervisor, event("UserPromptSubmit", tmp_path, prompt="Fix the tests"))
+    outcome = await handle(supervisor, event(
+        "PreToolUse", tmp_path, tool_name="shell", tool_input={"command": "x" * 40_000},
+    ))
+    assert outcome["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "request budget exceeded" in outcome["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+@pytest.mark.asyncio
+async def test_existing_oversized_session_recovers_without_clearing_saved_history(tmp_path) -> None:
+    from foreman.foreman import JevForemanModel
+    from foreman.request_budget import JevRequestBudget
+
+    class BudgetCheckingClient:
+        calls = []
+
+        async def system_one(self, *, state, questions, **kwargs):
+            sizes = JevRequestBudget().measure(
+                state, {key: question.instructions for key, question in questions.items()},
+            )
+            assert sizes["pair_bytes"] <= 30_000
+            assert sizes["total_bytes"] <= 60_000
+            self.calls.append(state)
+            scores = {"worker_stuck", "work_off_track", "agents_md_drift", "needs_human",
+                      "needs_verification"}
+            return {key: 0.0 if key.split("__")[-1] in scores else 0.99 for key in questions}
+
+    client = BudgetCheckingClient()
+    supervisor, store, _ = runtime(tmp_path, model=JevForemanModel(client=client))
+    await handle(supervisor, event("UserPromptSubmit", tmp_path, prompt="Fix the tests"))
+    session = store.load("thr-attached-123")
+    session.recent_events = [{"summary": "old result " * 1200} for _ in range(30)]
+    store.save(session)
+
+    outcome = await handle(supervisor, event(
+        "PreToolUse", tmp_path, tool_name="shell", tool_input={"command": "pytest -q"},
+    ))
+    assert outcome == {}
+    assert client.calls and "evidence_budget" in client.calls[0]
+    assert store.load("thr-attached-123").recent_events[0]["summary"] == "old result " * 1200
+
+
 def config(**updates) -> FactoryConfig:
     values = {
         "jev_timeout_seconds": 0.5,

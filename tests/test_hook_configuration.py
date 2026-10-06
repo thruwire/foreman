@@ -231,6 +231,8 @@ def test_disabling_an_extension_responsibility_removes_its_empty_route_groups():
 
 
 def test_hook_credentials_can_use_central_dotenv_without_a_custom_launcher(tmp_path, monkeypatch):
+    # Never discover a developer's real credentials while testing dotenv precedence.
+    monkeypatch.setattr("dotenv.main.find_dotenv", lambda: str(tmp_path / ".env"))
     monkeypatch.setenv("FOREMAN_CONFIG", str(central_config(tmp_path, custom=False)))
     state = tmp_path / "state"
     state.mkdir()

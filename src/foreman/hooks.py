@@ -536,6 +536,14 @@ class AttachedWorkerRuntime:
             state,
             self.config,
             recent_events=session.recent_events,
+            current_operation=event.model_dump(
+                mode="json",
+                include={
+                    "client", "kind", "source_event_name", "turn_id", "tool_name",
+                    "tool_use_id", "tool_input",
+                },
+                exclude_none=True,
+            ),
             repository_instruction_files=active.repository_instruction_files(),
         )
         try:

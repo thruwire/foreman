@@ -43,6 +43,33 @@ Checks with the same evidence selection are evaluated together in one Jev call. 
 different selections are grouped into separate calls so each call receives only its selected
 provider payloads.
 
+## Jev request budgets
+
+Every assessment is checked against two aggregate budgets after selecting evidence: state plus
+the longest question, and state plus all questions. Routing requests use the same validation.
+Per-field collection limits alone cannot prevent a long hook session from exceeding Jev's
+[32k / 64k token limits](https://docs.typesafe.ai/models).
+
+The SDK exposes no matching tokenizer. Foreman therefore counts ASCII-escaped JSON bytes,
+including question definitions and envelope overhead, as a conservative proxy. Defaults are
+30,000 bytes for the pair and 60,000 bytes for the request, leaving room below the published
+token limits. These are byte budgets, not exact token counts. They can be lowered with
+`FOREMAN_JEV_PAIR_BUDGET_BYTES` and `FOREMAN_JEV_REQUEST_BUDGET_BYTES`; values above the defaults
+are rejected.
+
+When selected evidence is too large, Foreman removes duplicate worker output, drops oldest
+history first, then shortens optional strings while retaining their beginning and end. Optional
+fields can be removed as a final step. The request includes an `evidence_budget` record naming
+affected fields and explaining that omitted evidence is unknown, not evidence of success or
+absence. Compaction changes only the outgoing copy; saved session history remains intact.
+Logs report serialized sizes without printing the evidence itself.
+
+The full job, current hook operation and tool arguments, selected repository instructions,
+routing bindings, and question definitions are preserved. If those essential inputs cannot fit,
+Foreman reports a local budget error before submitting any assessment group. Existing hook
+failure handling applies, including denial of `PreToolUse`. Routing preserves the entire work
+and every routing question, and likewise fails locally if they cannot fit.
+
 ## Command providers
 
 Trusted command providers live in Foreman's central configuration, never in the repository being
