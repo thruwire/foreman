@@ -12,6 +12,7 @@ from typing import Annotated, Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
+from foreman.jev_usage import JevUsageRecorder
 from foreman.request_budget import JevRequestBudget, RequestBudgetError
 from foreman.responsibilities import ResponsibilityRegistry, ResponsibilityRoute
 
@@ -378,11 +379,13 @@ class JevResponsibilityRouter:
         timeout_seconds: float = 10.0,
         model: str = "jev-latest",
         budget: JevRequestBudget | None = None,
+        usage_recorder: JevUsageRecorder | None = None,
     ) -> None:
         self._client = client
         self.timeout_seconds = timeout_seconds
         self.model = model
         self.budget = budget or JevRequestBudget()
+        self.usage_recorder = usage_recorder or JevUsageRecorder()
         self._owns_client = client is None
 
     def _make_client(self) -> Any:
@@ -499,6 +502,9 @@ class JevResponsibilityRouter:
                     timeout=self.timeout_seconds,
                 ),
                 timeout=self.timeout_seconds + 0.5,
+            )
+            self.usage_recorder.record(
+                response, fitted, purpose="routing", model=self.model,
             )
             scores = _parse_scores(response, list(routes), prefix=prefix)
         except TimeoutError as error:

@@ -112,6 +112,7 @@ failure_message = "Read the connected project's current context before proceedin
 [hooks.responsibilities."example.project-context".checks.context_consulted]
 instructions = "Was the connected project consulted for this work?"
 min_threshold = 0.75
+evidence = ["events", "history", "git.status"]
 ```
 
 The repository list matches Git identities, including subdirectories, symlinks, and linked

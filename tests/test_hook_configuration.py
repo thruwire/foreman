@@ -96,6 +96,36 @@ def test_local_definitions_can_disable_builtin_classes_and_own_one_check():
         configured_registry(FactoryConfig(), overrides=definitions())
 
 
+@pytest.mark.asyncio
+async def test_focused_project_check_keeps_tool_results_and_excludes_source_evidence():
+    from test_foreman import Client, observation
+
+    from foreman.foreman import JevForemanModel
+
+    overrides = definitions()
+    definition = overrides[CUSTOM]
+    check = definition.checks["context_consulted"].model_copy(
+        update={"evidence": ("events", "history", "git.status")},
+    )
+    overrides[CUSTOM] = definition.model_copy(update={"checks": {"context_consulted": check}})
+    registry = configured_registry(FactoryConfig(), overrides=overrides, require_lifecycle=False)
+    value = observation().model_copy(update={
+        "current_operation": {"tool_input": {"path": "file.py"}},
+        "recent_events": [{"source_event": "PostToolUse", "summary": "MCP read-back succeeded"}],
+        "git_status": " M file.py", "git_diff": "private source " * 4000,
+        "untracked_evidence": "unrelated source",
+        "latest_worker_output": "repeated tool transcript " * 400,
+    })
+    client = Client(result={CUSTOM + "__context_consulted": 0.9})
+    await JevForemanModel(client=client).assess(value, registry.checks())
+    state = client.calls[0]["state"]
+    assert state["recent_events"] == value.recent_events
+    assert state["git_status"] == value.git_status
+    assert state["current_operation"] == value.current_operation
+    assert "previous_result" in state and "failures" in state
+    assert not {"git_diff", "untracked_evidence", "latest_worker_output"} & state.keys()
+
+
 @pytest.mark.parametrize("responsibility_id", ["core.completion", "core.verification"])
 def test_attached_overrides_can_disable_each_lifecycle_class(responsibility_id):
     registry = configured_registry(

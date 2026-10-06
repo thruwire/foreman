@@ -19,6 +19,72 @@ def test_small_requests_are_unchanged() -> None:
     assert "evidence_budget" not in result.state
 
 
+def test_routine_deduplication_reduces_input_without_discarding_evidence() -> None:
+    text = "unique result " * 100
+    state = {
+        "original_job": "job",
+        "latest_worker_output": text,
+        "active_workers": [{"stdout_tail": text, "stderr_tail": "failure details"}],
+        "worker_history": [{"stdout_tail": text}],
+    }
+    before = copy.deepcopy(state)
+    fitted = JevRequestBudget().fit(state, {"check": "Check"})
+    assert fitted.original_measurements["pair_bytes"] < 12_000
+    assert fitted.measurements["total_bytes"] < fitted.original_measurements["total_bytes"]
+    assert fitted.state["latest_worker_output"] == text
+    assert fitted.state["active_workers"][0]["stderr_tail"] == "failure details"
+    assert fitted.state["evidence_budget"]["omitted_fields"] == []
+    assert state == before
+
+
+def test_deduplication_preserves_meaningful_whitespace_differences() -> None:
+    text = "    indented code\n" * 40
+    state = {"latest_worker_output": text,
+             "active_workers": [{"stdout_tail": text.strip()}]}
+    assert JevRequestBudget().fit(state, {"check": "Check"}).state == state
+
+
+def test_soft_target_reduces_requests_already_under_hard_cap() -> None:
+    state = {"original_job": "job", "current_operation": {"tool_name": "read"},
+             "recent_events": [{"index": i, "summary": "output " * 120} for i in range(20)]}
+    fitted = JevRequestBudget().fit(state, {"check": "Check"})
+    assert 12_000 < fitted.original_measurements["pair_bytes"] < 30_000
+    assert fitted.measurements["pair_bytes"] <= 12_000
+    assert fitted.state["recent_events"][-1] == state["recent_events"][-1]
+
+
+def test_soft_target_expands_for_essential_context_and_keeps_useful_evidence() -> None:
+    state = {"original_job": "x" * 13_000,
+             "current_operation": {"tool_input": {"command": "pytest"}},
+             "recent_events": [{"summary": "test output " * 300}]}
+    fitted = JevRequestBudget().fit(state, {"check": "Check"})
+    assert 12_000 < fitted.measurements["pair_bytes"] <= 30_000
+    assert fitted.state == state
+
+
+def test_soft_total_target_counts_every_question() -> None:
+    state = {"original_job": "job", "latest_worker_output": "x" * 6000}
+    questions = {f"check-{i}": "q" * 2500 for i in range(8)}
+    fitted = JevRequestBudget().fit(state, questions)
+    assert fitted.original_measurements["pair_bytes"] < 12_000
+    assert fitted.original_measurements["total_bytes"] > 24_000
+    assert fitted.measurements["total_bytes"] <= 24_000
+
+
+def test_soft_targets_are_clamped_to_lower_hard_limits() -> None:
+    fitted = JevRequestBudget(pair_bytes=4000, total_bytes=8000).fit(
+        {"original_job": "job", "latest_worker_output": "x" * 6000}, {"check": "Check"},
+    )
+    assert fitted.measurements["pair_bytes"] <= 4000
+
+
+def test_routing_ignores_soft_targets_but_preserves_hard_validation() -> None:
+    state = {"work": "x" * 13_000}
+    fitted = JevRequestBudget().fit(state, {"check": "Check"}, compact=False)
+    assert fitted.state == state
+    assert fitted.measurements["pair_bytes"] > 12_000
+
+
 def test_large_hook_history_keeps_current_operation_and_instructions() -> None:
     state = {
         "original_job": "Fix the parser",
@@ -41,7 +107,7 @@ def test_large_hook_history_keeps_current_operation_and_instructions() -> None:
 
 
 def test_duplicate_output_is_removed_without_losing_unique_worker_evidence() -> None:
-    text = "same worker output\n" * 650
+    text = "same worker output\n" * 400
     state = {
         "original_job": "job",
         "latest_worker_output": text,
@@ -103,7 +169,7 @@ async def test_assessment_budgets_selected_evidence_and_preserves_questions(capl
         "recent_events": [{"summary": "large tool result\n" * 1000} for _ in range(30)],
         "current_operation": {"tool_name": "read", "tool_input": {"path": "file.py"}},
     })
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.INFO):
         result = await JevForemanModel(client=client).assess(value, checks)
 
     assert result.probability("example", "progress") == 0.9

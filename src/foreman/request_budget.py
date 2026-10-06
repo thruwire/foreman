@@ -51,16 +51,24 @@ PROTECTED_FIELDS = frozenset({
 class BudgetedRequest:
     state: dict[str, Any]
     measurements: dict[str, int]
+    original_measurements: dict[str, int]
 
 
 @dataclass(frozen=True)
 class JevRequestBudget:
     pair_bytes: int = 30_000
     total_bytes: int = 60_000
+    target_pair_bytes: int = 12_000
+    target_total_bytes: int = 24_000
 
     def __post_init__(self) -> None:
         if not 512 <= self.pair_bytes <= 30_000 or not 512 <= self.total_bytes <= 60_000:
             raise ValueError("Jev byte budgets must be positive and below the model defaults")
+        if (
+            not 512 <= self.target_pair_bytes <= 30_000
+            or not 512 <= self.target_total_bytes <= 60_000
+        ):
+            raise ValueError("Jev byte targets must be positive and below the model defaults")
 
     def measure(
         self, state: Mapping[str, Any], questions: Mapping[str, str],
@@ -76,54 +84,67 @@ class JevRequestBudget:
             "total_bytes": json_bytes({"state": state, "questions": payloads}),
         }
 
-    def _fits(self, sizes: Mapping[str, int]) -> bool:
-        return sizes["pair_bytes"] <= self.pair_bytes and sizes["total_bytes"] <= self.total_bytes
+    def _fits(self, sizes: Mapping[str, int], *, target: bool = False) -> bool:
+        pair = min(self.target_pair_bytes, self.pair_bytes) if target else self.pair_bytes
+        total = min(self.target_total_bytes, self.total_bytes) if target else self.total_bytes
+        return sizes["pair_bytes"] <= pair and sizes["total_bytes"] <= total
 
     def fit(
         self, state: Mapping[str, Any], questions: Mapping[str, str], *, compact: bool = True,
     ) -> BudgetedRequest:
         result = copy.deepcopy(dict(state))
         original = self.measure(result, questions)
-        if self._fits(original):
-            return BudgetedRequest(result, original)
-
         omitted: set[str] = set()
         deduplicated: set[str] = set()
 
         def record() -> dict[str, int]:
-            result["evidence_budget"] = {
-                "method": "ascii_json_bytes",
-                "original_state_bytes": original["state_bytes"],
-                "omitted_fields": sorted(omitted),
-                "deduplicated_fields": sorted(deduplicated),
-                "notice": "Omitted evidence is unknown, not evidence of success or absence.",
-            }
+            if omitted or deduplicated:
+                result["evidence_budget"] = {
+                    "method": "ascii_json_bytes",
+                    "original_state_bytes": original["state_bytes"],
+                    "omitted_fields": sorted(omitted),
+                    "deduplicated_fields": sorted(deduplicated),
+                    "notice": "Omitted evidence is unknown, not evidence of success or absence.",
+                }
             return self.measure(result, questions)
 
         if compact:
             latest = result.get("latest_worker_output", "")
-            seen: dict[str, str] = {latest.strip(): "latest_worker_output"} if latest else {}
+            seen: dict[str, str] = {latest: "latest_worker_output"} if latest else {}
             for field in ("active_workers", "worker_history"):
-                for worker in result.get(field, []):
+                for index, worker in enumerate(result.get(field, [])):
                     for stream in ("stdout_tail", "stderr_tail"):
                         value = worker.get(stream, "")
-                        if value.strip() and value.strip() in seen:
-                            worker[stream] = f"[duplicate of {seen[value.strip()]}]"
+                        # Short references plus metadata can cost more than the text.
+                        # Compare exactly: whitespace differences may be meaningful.
+                        if value in seen and json_bytes(value) >= 512:
+                            worker[stream] = f"[duplicate of {seen[value]}]"
                             deduplicated.add(field)
-                        elif value.strip():
-                            seen[value.strip()] = f"{field}.{stream}"
-            sizes = record()
-            if self._fits(sizes):
-                return BudgetedRequest(result, sizes)
+                        elif value and field == "active_workers":
+                            # Avoid references to oldest history that may be dropped.
+                            seen[value] = f"{field}[{index}].{stream}"
 
+        sizes = record()
+        essential = self.measure(
+            {key: value for key, value in result.items()
+             if key in PROTECTED_FIELDS or key == "evidence_budget"},
+            questions,
+        )
+        # A soft target must never reject essential context. If it cannot fit,
+        # retain useful optional evidence up to the hard limits instead.
+        use_target = compact and self._fits(essential, target=True)
+        if self._fits(sizes, target=use_target):
+            return BudgetedRequest(result, sizes, original)
+
+        if compact:
             # Prefer recent evidence before reducing any current output or diff.
             for field in ("recent_events", "worker_history", "failures"):
                 while len(result.get(field, [])) > 1:
                     result[field].pop(0)
                     omitted.add(field)
                     sizes = record()
-                    if self._fits(sizes):
-                        return BudgetedRequest(result, sizes)
+                    if self._fits(sizes, target=use_target):
+                        return BudgetedRequest(result, sizes, original)
 
             # Keep the head and tail of large optional strings, including the
             # newest tool result, diff, and command output. Preserve JSON shape.
@@ -140,8 +161,8 @@ class JevRequestBudget:
                 parent[key] = value[:keep] + "\n[... evidence omitted ...]\n" + value[-keep:]
                 omitted.add(field)
                 sizes = record()
-                if self._fits(sizes):
-                    return BudgetedRequest(result, sizes)
+                if self._fits(sizes, target=use_target):
+                    return BudgetedRequest(result, sizes, original)
 
             # Even compact structures can grow large. Explicitly remove optional
             # fields as a last resort; the required state remains intact.
@@ -153,10 +174,12 @@ class JevRequestBudget:
                 del result[field]
                 omitted.add(field)
                 sizes = record()
-                if self._fits(sizes):
-                    return BudgetedRequest(result, sizes)
+                if self._fits(sizes, target=use_target):
+                    return BudgetedRequest(result, sizes, original)
 
         sizes = self.measure(result, questions)
+        if self._fits(sizes):
+            return BudgetedRequest(result, sizes, original)
         raise RequestBudgetError(
             "Jev request budget exceeded: essential context and unchanged questions cannot fit "
             f"(state={sizes['state_bytes']} ASCII JSON bytes; "

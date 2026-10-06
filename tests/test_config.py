@@ -68,3 +68,18 @@ def test_request_budget_environment_overrides(monkeypatch) -> None:
 def test_request_budgets_cannot_exceed_conservative_defaults() -> None:
     with pytest.raises(ValueError):
         FactoryConfig(jev_pair_budget_bytes=32_000)
+
+
+def test_request_soft_target_environment_overrides(monkeypatch) -> None:
+    monkeypatch.setenv("FOREMAN_JEV_PAIR_TARGET_BYTES", "8000")
+    monkeypatch.setenv("FOREMAN_JEV_REQUEST_TARGET_BYTES", "16000")
+    config = FactoryConfig.from_environment()
+    assert config.jev_pair_target_bytes == 8000
+    assert config.jev_request_target_bytes == 16000
+    assert config.jev_pair_budget_bytes == 30_000
+
+
+@pytest.mark.parametrize("field", ["jev_pair_target_bytes", "jev_request_target_bytes"])
+def test_invalid_soft_targets_are_rejected(field) -> None:
+    with pytest.raises(ValueError):
+        FactoryConfig(**{field: 0})
