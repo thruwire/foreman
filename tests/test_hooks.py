@@ -604,3 +604,98 @@ async def test_attached_runtime_rejects_snapshot_change_between_hooks(tmp_path) 
             changed,
             event("PreToolUse", tmp_path, tool_name="Bash", tool_input={"command": "pwd"}),
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('client', ['pi', 'pi-durable'])
+async def test_pi_runtime_preserves_operation_and_session_namespace(tmp_path, client):
+    model = StubModel()
+    supervisor, store, _ = runtime(tmp_path, model=model)
+    adapter = hook_adapter(client)
+    base = {'session_id': 'same-id', 'cwd': str(tmp_path), 'work_id': 'work-1'}
+    submitted = {'type': 'input', 'text': 'Fix the tests'} if client == 'pi' else {
+        'type': 'beforeRequest', 'prompt': 'Fix the tests',
+    }
+    await supervisor.handle(adapter.parse({**base, 'event': submitted}))
+    arguments = {'command': 'BEGIN ' + 'x' * 2000 + ' END'}
+    tool = {'type': 'tool_call', 'toolName': 'bash', 'toolCallId': 'c1', 'input': arguments}
+    if client == 'pi-durable':
+        tool = {'type': 'beforeTool', 'call': {'name': 'bash', 'id': 'c1',
+                                             'arguments': arguments}}
+    await supervisor.handle(adapter.parse({**base, 'event': tool}))
+    assert model.calls[-1][0].current_operation['tool_input'] == arguments
+    assert store.load('same-id', client).state.workers[0].client == client
+    assert store.load('same-id', 'codex') is None
+
+
+@pytest.mark.asyncio
+async def test_durable_replay_preserves_routing_and_one_continuation(tmp_path):
+    supervisor, store, router = runtime(tmp_path)
+    adapter = hook_adapter('pi-durable')
+    base = {'session_id': 'store:conversation-1', 'cwd': str(tmp_path)}
+    work = adapter.parse({**base, 'work_id': '[12]',
+                          'event': {'type': 'beforeRequest', 'prompt': 'Fix the tests'}})
+    first = await supervisor.handle(work)
+    assert first.action is HookAction.INJECT_CONTEXT
+    stop = adapter.parse({**base, 'event_id': 'onYield:14',
+                          'event': {'type': 'onYield', 'last_assistant_message': 'Incomplete'}})
+    outcome = await supervisor.handle(stop)
+    assert outcome.action is HookAction.BLOCK
+    iterations = store.load(base['session_id'], 'pi-durable').state.iteration
+
+    # A new runtime simulates process restart, including the window after Foreman
+    # saves its decision but before Pi commits its task memo.
+    restarted, _, new_router = runtime(tmp_path)
+    assert await restarted.handle(stop) == outcome
+    assert await restarted.handle(work) == first
+    session = store.load(base['session_id'], 'pi-durable')
+    assert session.state.iteration == iterations
+    assert session.state.job == 'Fix the tests'
+    assert router.calls == ['Fix the tests'] and new_router.calls == []
+
+    next_stop = stop.model_copy(update={'event_id': 'onYield:18'})
+    assert (await restarted.handle(next_stop)).action is HookAction.HALT
+    # A real new submission resets the allowance; identical text is still new work.
+    await restarted.handle(work.model_copy(update={'work_id': '[20]'}))
+    assert new_router.calls == ['Fix the tests']
+    assert (await restarted.handle(stop.model_copy(update={'event_id': 'onYield:21'}))).action \
+        is HookAction.BLOCK
+
+
+@pytest.mark.asyncio
+async def test_reused_work_and_event_ids_reject_changed_input(tmp_path):
+    supervisor, _, _ = runtime(tmp_path)
+    adapter = hook_adapter('pi-durable')
+    base = {'session_id': 's', 'cwd': str(tmp_path)}
+    work = adapter.parse({**base, 'work_id': '1',
+                          'event': {'type': 'beforeRequest', 'prompt': 'Fix the tests'}})
+    await supervisor.handle(work)
+    with pytest.raises(HookError, match='work_id was reused'):
+        await supervisor.handle(work.model_copy(update={'prompt': 'Different work'}))
+    stop = adapter.parse({**base, 'event_id': 'yield:2',
+                          'event': {'type': 'onYield', 'last_assistant_message': 'Incomplete'}})
+    await supervisor.handle(stop)
+    with pytest.raises(HookError, match='event_id was reused'):
+        await supervisor.handle(stop.model_copy(update={
+            'last_assistant_message': 'Different answer',
+        }))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('client', ['pi', 'pi-durable'])
+async def test_pi_assessment_failure_denies_tool(tmp_path, client):
+    supervisor, _, _ = runtime(tmp_path, model=FailingModel())
+    adapter = hook_adapter(client)
+    base = {'session_id': 's', 'cwd': str(tmp_path), 'work_id': 'work-1'}
+    submitted = {'type': 'input', 'text': 'Fix the tests'} if client == 'pi' else {
+        'type': 'beforeRequest', 'prompt': 'Fix the tests',
+    }
+    await supervisor.handle(adapter.parse({**base, 'event': submitted}))
+    tool = {'type': 'tool_call', 'toolName': 'bash', 'input': {'command': 'pytest'}}
+    if client == 'pi-durable':
+        tool = {'type': 'beforeTool', 'call': {'name': 'bash',
+                                             'arguments': {'command': 'pytest'}}}
+    event = adapter.parse({**base, 'event': tool})
+    output = adapter.render(event, await supervisor.handle(event))
+    assert output['action'] == 'block'
+    assert 'Jev unavailable' in output['reason']

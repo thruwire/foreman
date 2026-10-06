@@ -373,7 +373,7 @@ printf '%s\n' '{"session_id":"thr_123","cwd":"/workspace/project","hook_event_na
   | foreman hook --client codex
 ```
 
-The explicit `--client` selects a protocol adapter; `codex` is currently the only adapter and
+The explicit `--client` selects `codex`, `pi`, or `pi-durable`; `codex` remains
 the compatibility default. Foreman does not infer a client from arbitrary JSON, and unknown
 clients fail closed. The adapter normalizes events before they reach the shared attached-worker
 runtime and translates semantic outcomes back into client-specific hook JSON.
@@ -393,6 +393,11 @@ codex plugin add foreman@thruwire
 See [coding-assistant hooks and attached workers](docs/hooks.md) for the process protocol and the
 [Codex plugin README](https://github.com/thruwire/marketplace/tree/main/plugins/foreman) for
 installation, trust, and diagnostics.
+
+The [Pi and Pi Durable bridges](integrations/pi/README.md) forward native extension events and
+task hooks to the same runtime. They include prompt routing, tool supervision, completion
+continuations, and a Durable replay contract. Build and load them from this checkout; the bridge
+package has not been published to npm.
 
 ## Persistence and inspection
 

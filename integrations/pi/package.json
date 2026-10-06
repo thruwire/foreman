@@ -1,0 +1,45 @@
+{
+  "name": "@thruwire/foreman-pi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Pi and Pi Durable bridges to Foreman's attached-worker supervisor",
+  "exports": {
+    "./pi": "./dist/pi.js",
+    "./durable": "./dist/durable.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "pi": {
+    "extensions": [
+      "./dist/pi.js"
+    ]
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test tests/*.test.mjs"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=1.0.4 <1.1.0",
+    "@earendil-works/pi-durable": ">=1.0.4 <1.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-durable": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.0.4",
+    "@earendil-works/pi-durable": "1.0.4",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.0"
+  }
+}

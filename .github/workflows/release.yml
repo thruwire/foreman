@@ -43,6 +43,18 @@ jobs:
           python -m pytest
           python -m ruff check .
 
+      - name: Set up Node for Pi integration tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.19.0"
+          cache: npm
+          cache-dependency-path: integrations/pi/package-lock.json
+
+      - name: Test Pi integrations
+        run: |
+          npm ci --prefix integrations/pi
+          npm test --prefix integrations/pi
+
       - name: Build distributions
         run: python -m build
 

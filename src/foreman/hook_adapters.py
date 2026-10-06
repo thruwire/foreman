@@ -126,8 +126,91 @@ class CodexHookAdapter:
         }
 
 
+class PiHookInput(BaseModel):
+    """Bridge envelope around Pi's native events; identities come from its host."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str = Field(min_length=1, max_length=1_000)
+    cwd: str = Field(min_length=1)
+    event: dict[str, Any]
+    work_id: str | None = Field(default=None, min_length=1, max_length=1_000)
+    event_id: str | None = Field(default=None, min_length=1, max_length=1_000)
+    continuation_active: bool = False
+
+
+_PI_EVENT_KINDS = {
+    "session_start": HookEventKind.SESSION_STARTED,
+    "input": HookEventKind.WORK_SUBMITTED,
+    "tool_call": HookEventKind.BEFORE_TOOL,
+    "tool_result": HookEventKind.AFTER_TOOL,
+    "agent_before_settle": HookEventKind.WORKER_STOPPING,
+    "session_shutdown": HookEventKind.SESSION_ENDED,
+}
+_DURABLE_EVENT_KINDS = {
+    "beforeRequest": HookEventKind.WORK_SUBMITTED,
+    "beforeTool": HookEventKind.BEFORE_TOOL,
+    "afterTool": HookEventKind.AFTER_TOOL,
+    "onYield": HookEventKind.WORKER_STOPPING,
+}
+
+
+class PiHookAdapter:
+    client = "pi"
+    event_kinds = _PI_EVENT_KINDS
+
+    def parse(self, payload: dict[str, Any]) -> HookEvent:
+        try:
+            source = PiHookInput.model_validate(payload)
+            native = source.event
+            name = native.get("type")
+            if name not in self.event_kinds:
+                raise ValueError(f"unsupported event {name!r}")
+            durable = self.client == "pi-durable"
+            call = native.get("call", {}) if durable else native
+            if not isinstance(call, dict):
+                raise ValueError("call must be an object")
+            return HookEvent(
+                client=self.client,
+                session_id=source.session_id,
+                cwd=source.cwd,
+                kind=self.event_kinds[name],
+                source_event_name=name,
+                work_id=source.work_id,
+                event_id=source.event_id,
+                turn_id=source.work_id,
+                prompt=native.get("prompt" if durable else "text"),
+                tool_name=call.get("name" if durable else "toolName"),
+                tool_use_id=call.get("id" if durable else "toolCallId"),
+                tool_input=call.get("arguments" if durable else "input"),
+                tool_response=native.get("result") if durable else (
+                    {key: native[key]
+                     for key in ("content", "details", "structuredContent", "isError")
+                     if key in native} if name == "tool_result" else None
+                ),
+                continuation_active=source.continuation_active,
+                last_assistant_message=native.get("last_assistant_message"),
+            )
+        except (ValidationError, ValueError, TypeError) as error:
+            raise HookError(f"invalid {self.client} hook input: {error}") from error
+
+    def render(self, event: HookEvent, outcome: HookOutcome) -> dict[str, Any]:
+        # The TypeScript bridges apply these effects through native APIs. A HALT
+        # remains distinct from BLOCK (which requests a completion continuation).
+        if outcome.action is HookAction.ALLOW:
+            return {}
+        return outcome.model_dump(mode="json", exclude_none=True)
+
+
+class PiDurableHookAdapter(PiHookAdapter):
+    client = "pi-durable"
+    event_kinds = _DURABLE_EVENT_KINDS
+
+
 _ADAPTERS: dict[str, HookAdapter] = {
     CodexHookAdapter.client: CodexHookAdapter(),
+    PiHookAdapter.client: PiHookAdapter(),
+    PiDurableHookAdapter.client: PiDurableHookAdapter(),
 }
 
 

@@ -65,6 +65,8 @@ class HookEvent(BaseModel):
     kind: HookEventKind
     source_event_name: str = Field(min_length=1)
     turn_id: str | None = None
+    work_id: str | None = Field(default=None, min_length=1, max_length=1_000)
+    event_id: str | None = Field(default=None, min_length=1, max_length=1_000)
     prompt: str | None = None
     tool_name: str | None = None
     tool_use_id: str | None = None
@@ -115,6 +117,11 @@ class AttachedSession(BaseModel):
     client: str = "codex"
     session_id: str
     prompt_routed: bool = False
+    work_id: str | None = None
+    work_prompt: str | None = None
+    routed_context: str | None = None
+    continuation_requested: bool = False
+    replayed_outcomes: list[dict[str, Any]] = Field(default_factory=list)
     repository: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -374,6 +381,13 @@ class AttachedWorkerRuntime:
             session = self.store.load(event.session_id, event.client) or self.store.new(
                 event.session_id, repository, event.client
             )
+            if event.event_id is not None:
+                fingerprint = hashlib.sha256(event.model_dump_json().encode()).hexdigest()
+                for cached in session.replayed_outcomes:
+                    if cached["event_id"] == event.event_id:
+                        if cached["fingerprint"] != fingerprint:
+                            raise HookError("event_id was reused with different input")
+                        return HookOutcome.model_validate(cached["outcome"])
             session.repository = str(repository)
             session.event_count += 1
             session.recent_events.append(_event_record(event, self.config.output_limit))
@@ -385,7 +399,25 @@ class AttachedWorkerRuntime:
                 return HookOutcome()
             if event.kind is HookEventKind.WORK_SUBMITTED:
                 try:
-                    output = await self._route_prompt(session, event)
+                    if event.work_id is not None and event.work_id == session.work_id:
+                        if session.work_prompt != event.prompt.strip():
+                            raise HookError("work_id was reused with a different prompt")
+                        if session.state is not None and (
+                            session.state.active_extension_ids != list(self.active_extension_ids)
+                            or session.state.extension_snapshot_revisions
+                            != self.extension_snapshot_revisions
+                        ):
+                            raise HookError("extension snapshots changed; submit new work")
+                        output = HookOutcome(
+                            action=HookAction.INJECT_CONTEXT,
+                            reason=session.routed_context,
+                        ) if session.routed_context else HookOutcome()
+                    else:
+                        output = await self._route_prompt(session, event)
+                        session.work_id = event.work_id
+                        session.work_prompt = event.prompt.strip()
+                        session.routed_context = output.reason
+                        session.continuation_requested = False
                 except ResponsibilityRoutingError as error:
                     output = HookOutcome(
                         action=HookAction.BLOCK,
@@ -408,8 +440,29 @@ class AttachedWorkerRuntime:
                         "extension snapshots changed during this attached session; "
                         "submit the work prompt again"
                     )
+                if event.kind is HookEventKind.WORKER_STOPPING and session.work_id is not None:
+                    event = event.model_copy(update={
+                        "continuation_active": (
+                            event.continuation_active or session.continuation_requested
+                        ),
+                    })
                 output = await self._assess_event(session, event)
+                if (
+                    event.kind is HookEventKind.WORKER_STOPPING
+                    and session.work_id is not None
+                    and output.action is HookAction.BLOCK
+                ):
+                    session.continuation_requested = True
 
+            if event.event_id is not None:
+                session.replayed_outcomes.append({
+                    "event_id": event.event_id,
+                    "fingerprint": fingerprint,
+                    "outcome": output.model_dump(mode="json"),
+                })
+                session.replayed_outcomes = session.replayed_outcomes[
+                    -self.config.event_history_limit :
+                ]
             self._bound_state(session)
             session.touch(self.store.ttl_seconds)
             self.store.save(session)

@@ -29,7 +29,7 @@ target repository.
 ## Client adapters
 
 The `--client` option selects the protocol adapter. Foreman does not guess from arbitrary input
-JSON. It currently ships a `codex` adapter, which remains the default for compatibility:
+JSON. It ships `codex`, `pi`, and `pi-durable` adapters. Codex remains the default for compatibility:
 
 ```bash
 foreman hook --client codex
@@ -40,6 +40,19 @@ its assistant's event names and fields into `HookEvent`, then renders Foreman's 
 `HookOutcome` in the assistant's required response shape. The routing, observation, policy, and
 session code only sees those normalized types. Adding another assistant therefore requires a new
 adapter and registry entry, not another supervision runtime.
+
+Pi uses the TypeScript [bridge package](../integrations/pi/README.md), which wraps native events
+in a session/cwd envelope and applies semantic response objects through Pi's native APIs. Its
+events are `session_start`, `input`, `tool_call`, `tool_result`, `agent_before_settle`, and
+`session_shutdown`. Input can consume a refused prompt before starting the agent; the final
+actionable settle boundary supplies completion feedback and requests continuation.
+
+Pi Durable uses native `GenerationTask` and `ToolTask` hooks: `beforeRequest`, `beforeTool`,
+`afterTool`, and `onYield`. The bridge combines a stable storage identity with the conversation
+ID, uses actual submitted entries as work, and deduplicates routing using their durable IDs.
+Before-tool steering becomes a tool block because that hook cannot inject context. Generation
+halt uses the public task abort API because ordinary hook exceptions are logged and swallowed.
+See the bridge guide for setup, version support, and parallel-tool limitations.
 
 ## Event flow
 
@@ -83,6 +96,13 @@ so compaction cannot conceal the arguments being assessed.
 Sessions expire after seven days of inactivity by default. Set
 `FOREMAN_HOOK_SESSION_TTL_SECONDS` to change that lifetime, or pass `--data-dir` to isolate the
 state directory during development and testing.
+
+Clients may provide `work_id` to route a repeated original submission idempotently. The saved
+work prompt, responsibility context, and one-continuation allowance survive retries and process
+restarts. A new work ID resets the allowance. Optional `event_id` caches a completion response,
+so replay between an external decision and a client's own commit does not spend that allowance
+again. Reusing an ID with different input fails. The replay cache is bounded by event history
+limits and expires with the session; it does not promise exactly-once model or tool execution.
 
 ## Responsibility configuration
 
@@ -156,7 +176,7 @@ Coding-assistant plugin packaging remains separate from the runtime. The
 protocol and is published through the ThruWire marketplace. The placeholder under
 `integrations/claude` reserves the future Claude Code adapter location but is not installable.
 
-Command evidence is likewise assistant-neutral: a Codex or future assistant plugin only forwards
+Command evidence is likewise assistant-neutral: a Codex, Pi, or Pi Durable bridge only forwards
 lifecycle events to `foreman hook`. Foreman owns provider invocation and check-specific evidence,
 so a CLI verifier does not need a separate SDK integration for every coding assistant. See
 [Evidence providers](evidence.md).
