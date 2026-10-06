@@ -22,6 +22,7 @@ from pydantic import (
 )
 
 from foreman.config import CommandEvidenceConfig, FactoryConfig
+from foreman.hook_config import HookFileConfig
 from foreman.paths import foreman_config_path, foreman_data_dir
 from foreman.responsibilities import Responsibility, ResponsibilityFileConfig
 from foreman.routing import RouteGroup
@@ -58,6 +59,7 @@ class ForemanFileConfig(BaseModel):
     # Presence in this mapping enables an extension. Values belong to that extension.
     extensions: dict[str, dict[str, JsonValue]] = Field(default_factory=dict)
     evidence: EvidenceFileConfig = Field(default_factory=EvidenceFileConfig)
+    hooks: HookFileConfig = Field(default_factory=HookFileConfig)
 
     @field_validator("extensions")
     @classmethod

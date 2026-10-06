@@ -81,9 +81,66 @@ state directory during development and testing.
 
 ## Responsibility configuration
 
+### Central attached-worker configuration
+
+Attached hooks accept controls in `${FOREMAN_CONFIG:-~/.foreman/config.toml}`:
+
+```toml
+[hooks]
+repositories = ["/absolute/path/to/project", "/absolute/path/to/another-project"]
+
+[hooks.responsibilities."core.completion"]
+enabled = false
+
+[hooks.responsibilities."core.verification"]
+enabled = false
+
+[hooks.responsibilities."example.project-context"]
+kind = "declarative"
+always = false
+routing_instructions = "Does the incoming prompt require coding or debugging?"
+routing_threshold = 0.75
+context = "Consult the connected project before coding."
+failure_action = "steer"
+failure_message = "Read the connected project's current context before proceeding."
+
+[hooks.responsibilities."example.project-context".checks.context_consulted]
+instructions = "Was the connected project consulted for this work?"
+min_threshold = 0.75
+```
+
+The repository list matches Git identities, including subdirectories, symlinks, and linked
+worktrees. A different clone with the same name does not match. Omit `repositories` for the
+existing global behavior; use `[]` to disable attached supervision everywhere. Excluded hooks
+return an empty protocol response before loading extensions or initializing model clients, and
+discard previous session state. The plugin's existing lifecycle hooks remain the entry point.
+
+Every attached responsibility, including completion and verification, can be disabled with
+`enabled = false`. Disable each unwanted class explicitly; unspecified responsibilities retain
+their packaged defaults. This does not alter the required lifecycle checks for explicit
+`foreman run` jobs. When all responsibilities are disabled, hooks initialize no model clients.
+
+`kind = "declarative"` defines a local responsibility using Foreman's generic implementation.
+It owns its routing instructions, context, and recurring checks without an extension package.
+Each check asks whether a criterion is satisfied and requires `min_threshold`. A score below
+that threshold proposes `failure_action`: `steer` (default), `stop`, or `escalate`.
+The response uses `failure_message`, then `context`, or finally the failed check instructions.
+Satisfied checks allow active work to continue and allow a completed turn to finish; higher
+priority directives from other active responsibilities still take precedence.
+
+Only matched responsibilities inject their `context` on prompt submission. When every candidate
+is conditional and none matches, the previous work state is cleared and subsequent tool and
+completion events add no checks. Startup validates definitions and rejects unknown kinds,
+missing thresholds, and attempts to replace installed implementations with declarative ones.
+
+Credentials may be supplied through the process environment or a protected `.env` in
+`${FOREMAN_DATA_DIR:-~/.foreman}`. Existing environment values take precedence. These files and
+the central responsibility configuration remain outside the repositories being supervised.
+
 The hook runtime loads the TOML files packaged under
 `src/foreman/responsibilities/definitions/` plus explicitly configured, installed extensions from
-their validated local snapshots. It does not read target-repository responsibility files or
+their validated local snapshots, then applies the central `[hooks.responsibilities]` overrides.
+It does not read target-repository responsibility files or
 `FOREMAN_RESPONSIBILITIES_DIR`.
 
 Hook processing never authenticates or synchronizes an extension. Those are explicit extension

@@ -114,6 +114,7 @@ class AttachedSession(BaseModel):
     schema_version: int = 2
     client: str = "codex"
     session_id: str
+    prompt_routed: bool = False
     repository: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
@@ -392,6 +393,8 @@ class AttachedWorkerRuntime:
                     )
             else:
                 if session.state is None:
+                    if session.prompt_routed and not self.candidates.global_ids():
+                        return HookOutcome()
                     raise HookError(
                         f"{event.source_event_name} arrived before work_submitted"
                     )
@@ -421,10 +424,21 @@ class AttachedWorkerRuntime:
             self.candidates,
             self.routing_groups,
             self.router,
+            require_match=bool(self.candidates.global_ids()),
         )
         active_ids = decision.active_responsibility_ids
+        session.prompt_routed = True
         if not active_ids:
+            if not self.candidates.global_ids():
+                session.state = None
+                return HookOutcome()
             raise ResponsibilityRoutingError("routing activated no responsibilities")
+        guidance = "\n\n".join(
+            text for responsibility_id in active_ids
+            if (text := self.candidates.context_for(responsibility_id))
+        )
+        if len(guidance) > self.config.field_limit:
+            raise HookError("selected responsibility context exceeds the field limit")
 
         state = session.state or FactoryState(
             run_id=(
@@ -478,7 +492,8 @@ class AttachedWorkerRuntime:
         names = ", ".join(active_ids)
         return HookOutcome(
             action=HookAction.INJECT_CONTEXT,
-            reason=f"Foreman attached. Active responsibilities: {names}.",
+            reason=f"Foreman attached. Active responsibilities: {names}."
+            + (f"\n\n{guidance}" if guidance else ""),
         )
 
     async def _assess_event(

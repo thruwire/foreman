@@ -4,7 +4,7 @@ import asyncio
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from math import isfinite
@@ -198,11 +198,26 @@ def grouped_responsibility_ids(
     return _validate_route_groups(groups, candidates)
 
 
+def prune_disabled_route_groups(
+    groups: tuple[RouteGroup, ...], disabled_ids: set[str]
+) -> tuple[RouteGroup, ...]:
+    """Remove explicitly disabled responsibilities and groups with no remaining candidates."""
+    result = []
+    for group in groups:
+        responsibilities = tuple(key for key in group.responsibility_ids if key not in disabled_ids)
+        children = prune_disabled_route_groups(group.children, disabled_ids)
+        if responsibilities or children:
+            result.append(replace(group, responsibility_ids=responsibilities, children=children))
+    return tuple(result)
+
+
 async def resolve_hierarchical_routing(
     work: str,
     candidates: ResponsibilityRegistry,
     groups: tuple[RouteGroup, ...],
     router: ResponsibilityRouter,
+    *,
+    require_match: bool = True,
 ) -> RoutingDecision:
     """Route root responsibilities and recursively expand every matching route group."""
 
@@ -293,7 +308,7 @@ async def resolve_hierarchical_routing(
         for responsibility in candidates.responsibilities
         if responsibility.id in active_ids
     ]
-    if not ordered_active:
+    if not ordered_active and require_match:
         raise ResponsibilityRoutingError("routing activated no responsibilities")
     return RoutingDecision(
         active_responsibility_ids=ordered_active,

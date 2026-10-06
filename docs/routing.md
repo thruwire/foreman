@@ -7,7 +7,9 @@ threshold is added. Several responsibilities can match the same job.
 Responsibility configuration belongs to the centralized Foreman installation, not to a managed
 Git repository. There is no routes file and no target-repository discovery. Each responsibility
 owns its routing semantics, recurring Jev checks, and settings in a file named for its
-implementation. Its Python class owns directive logic and other executable behavior.
+implementation. Its Python class owns directive logic and other executable behavior. Local
+definitions with `kind = "declarative"` use Foreman's generic criterion-checking implementation;
+they do not require a custom Python package.
 
 ## Configuration locations
 
@@ -67,7 +69,9 @@ min_threshold = 0.75
   instead of introducing responsibility-specific threshold setting names.
 - `[settings]` is interpreted and validated by the responsibility implementation.
 
-Completion and verification are required global lifecycle responsibilities. Other built-ins may
+Completion and verification are required global lifecycle responsibilities for `foreman run`.
+Attached hooks can disable any class through central `[hooks.responsibilities]` overrides; see
+[hook configuration](hooks.md#central-attached-worker-configuration). Other built-ins may
 be disabled or made conditional. Repository instruction paths are responsibility settings; they
 identify files to inspect inside each target repository, but the settings themselves remain
 central.

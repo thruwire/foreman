@@ -13,24 +13,38 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
+from foreman import __version__
 from foreman.config import FactoryConfig
 from foreman.extensions import (
     ExtensionError,
     ExtensionIdentity,
     ExtensionManager,
     ExtensionSnapshot,
+    load_foreman_file_config,
 )
 from foreman.foreman import FakeForemanModel, JevForemanModel
 from foreman.hook_adapters import hook_adapter
-from foreman.hooks import AttachedSessionStore, AttachedWorkerRuntime, HookError, run_hook
+from foreman.hooks import (
+    AttachedSessionStore,
+    AttachedWorkerRuntime,
+    HookError,
+    HookEvent,
+    run_hook,
+)
 from foreman.models import EventType, FactoryStatus, WorkerType
 from foreman.paths import foreman_config_path, foreman_data_dir
 from foreman.persistence import PersistenceError, RunStore
+from foreman.repository_scope import repository_in_scope
 from foreman.responsibilities import (
     ResponsibilityConfigError,
     configured_registry,
 )
-from foreman.routing import GlobalResponsibilityRouter, JevResponsibilityRouter
+from foreman.routing import (
+    GlobalResponsibilityRouter,
+    JevResponsibilityRouter,
+    ResponsibilityRoutingError,
+    prune_disabled_route_groups,
+)
 from foreman.runtime import FactoryRuntime
 from foreman.terminal import TerminalRenderer, duration_label, elapsed_label
 from foreman.workers import FakeWorker
@@ -43,6 +57,23 @@ app = typer.Typer(
 extension_app = typer.Typer(help="Manage configured Foreman extensions.", no_args_is_help=True)
 app.add_typer(extension_app, name="extension")
 console = Console()
+
+
+@app.callback(invoke_without_command=True)
+def main(
+    version: Annotated[bool, typer.Option("--version", is_eager=True)] = False,
+) -> None:
+    """Supervise coding workers through the installed Foreman release."""
+    if version:
+        typer.echo(f"foreman-core {__version__}")
+        raise typer.Exit()
+
+
+def _discard_attached_session(event: HookEvent, data_dir: Path) -> None:
+    store = AttachedSessionStore(data_dir)
+    if store.path_for(event.session_id, event.client).exists():
+        with store.locked(event.session_id, event.client):
+            store.delete(event.session_id, event.client)
 
 
 def _run_async(runtime: FactoryRuntime) -> FactoryStatus:
@@ -206,7 +237,13 @@ def hook(
             raise HookError("hook input must be a JSON object")
         adapter = hook_adapter(client)
         event = adapter.parse(payload)
+        central = load_foreman_file_config(config_path=central_config_path)
+        if not repository_in_scope(event.cwd, central.hooks.repositories):
+            _discard_attached_session(event, central_data_dir)
+            sys.stdout.write("{}\n")
+            return
         load_dotenv(override=False)
+        load_dotenv(central_data_dir / ".env", override=False)
         config = FactoryConfig.from_environment()
         extensions = ExtensionManager(
             data_dir=central_data_dir,
@@ -217,23 +254,32 @@ def hook(
         )
         activated = extensions.activate(config)
         registrations = activated.responsibilities
+        responsibilities = configured_registry(
+            config,
+            additional=(item.implementation for item in registrations),
+            additional_configs={item.implementation.id: item.definition for item in registrations},
+            overrides=central.hooks.responsibilities,
+            require_lifecycle=False,
+        )
+        if not responsibilities.responsibilities:
+            _discard_attached_session(event, central_data_dir)
+            asyncio.run(extensions.close())
+            sys.stdout.write("{}\n")
+            return
         runtime = AttachedWorkerRuntime(
             model=JevForemanModel(timeout_seconds=config.jev_timeout_seconds),
             router=JevResponsibilityRouter(timeout_seconds=config.jev_timeout_seconds),
-            responsibilities=configured_registry(
-                config,
-                additional=(item.implementation for item in registrations),
-                additional_configs={
-                    item.implementation.id: item.definition for item in registrations
-                },
-            ),
+            responsibilities=responsibilities,
             config=config,
             store=AttachedSessionStore(
                 central_data_dir,
                 ttl_seconds=config.hook_session_ttl_seconds,
                 lock_timeout_seconds=max(30.0, config.jev_timeout_seconds * 3),
             ),
-            routing_groups=activated.routing_groups,
+            routing_groups=prune_disabled_route_groups(
+                activated.routing_groups,
+                {key for key, value in central.hooks.responsibilities.items() if not value.enabled},
+            ),
             active_extension_ids=activated.extension_ids,
             extension_snapshot_revisions=dict(activated.snapshot_revisions),
         )
@@ -252,6 +298,7 @@ def hook(
         ExtensionError,
         HookError,
         ResponsibilityConfigError,
+        ResponsibilityRoutingError,
     ) as error:
         if extensions is not None and not runtime_started:
             asyncio.run(extensions.close())
