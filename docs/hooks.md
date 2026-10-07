@@ -162,6 +162,8 @@ missing thresholds, and attempts to replace installed implementations with decla
 Credentials may be supplied through the process environment or a protected `.env` in
 `${FOREMAN_DATA_DIR:-~/.foreman}`. Existing environment values take precedence. These files and
 the central responsibility configuration remain outside the repositories being supervised.
+For OpenRouter, this same file can contain the SDK key and base URL described in the
+[OpenRouter setup guide](openrouter.md#attached-hooks).
 
 The hook runtime loads the TOML files packaged under
 `src/foreman/responsibilities/definitions/` plus explicitly configured, installed extensions from

@@ -52,6 +52,7 @@ depends on the quality of the configured checks, evidence, thresholds, and under
 
 - [Theory: semantic supervision](docs/theory.md)
 - [Why Jev fits Foreman](docs/why-jev.md)
+- [Use Jev through OpenRouter](docs/openrouter.md)
 - [What Foreman is proving](docs/what-foreman-proves.md)
 - [Runtime and event flow](docs/runtime.md)
 - [Evidence providers](docs/evidence.md)
@@ -274,7 +275,8 @@ invent one. Its minimum assessment interval defaults to five seconds and is conf
 ## Requirements
 
 - Python 3.11 or newer.
-- A TypeSafe API key for real runs. The deterministic demo and tests need neither service.
+- A TypeSafe API key, or an [OpenRouter API key with the SDK base URL configured](docs/openrouter.md),
+  for real runs. The deterministic demo and tests need neither service.
 - For the default Codex backend: the
   [Codex CLI](https://learn.chatgpt.com/docs/developer-commands?surface=cli) on `PATH`, a version
   that provides `codex app-server` for live steering, and Codex authentication (`codex login`,
@@ -315,6 +317,9 @@ TYPESAFE_API_KEY=your-key-here
 ```
 
 `.env` is ignored by Git. Foreman never writes the key into logs, observations, state, or events.
+
+OpenRouter users can use the same SDK without a separate TypeSafe account. Follow the
+[OpenRouter setup guide](docs/openrouter.md) to configure both the key and the base URL.
 
 ## Running Foreman
 
