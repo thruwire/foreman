@@ -16,11 +16,10 @@ TypeScript bridge. Installing `foreman-core` alone does not load an extension
 into Pi. The bridge invokes the `foreman` executable; it does not bundle Python
 or install the core automatically.
 
-The first npm release requires `foreman-core` **0.4.4 or newer**. Version 0.4.3
-predates the Pi adapters. Until 0.4.4 is published to PyPI, use the source
-installation below for the core as well as the bridge.
+The bridge requires `foreman-core` **0.4.4 or newer**. Version 0.4.3 predates
+the Pi adapters.
 
-After the core release is published, install it with:
+Install the core with:
 
 ```bash
 pipx install 'foreman-core>=0.4.4'
@@ -28,7 +27,8 @@ pipx install 'foreman-core>=0.4.4'
 
 ### npm installation
 
-Once `@thruwire/foreman-pi` has been published to npm, install it into Pi with:
+Install the published [`@thruwire/foreman-pi`](https://www.npmjs.com/package/@thruwire/foreman-pi)
+package into Pi with:
 
 ```bash
 pi install npm:@thruwire/foreman-pi

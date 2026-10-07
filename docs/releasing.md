@@ -71,6 +71,6 @@ Durable import in a separate installation before publishing.
 
 After publication, confirm `npm view @thruwire/foreman-pi@0.1.0 version` and
 `pi install npm:@thruwire/foreman-pi@0.1.0` in an isolated Pi configuration. Remove
-the conditional "once published" language in the installation guides only
-after verifying the releases. The existing `release.yml` workflow publishes
+outdated installation language only after verifying the releases. The existing
+`release.yml` workflow publishes
 the Python core only; an npm release still needs the manual steps above.

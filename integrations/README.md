@@ -11,6 +11,6 @@ are available to marketplace discovery before installation.
   `foreman hook --client pi` and `foreman hook --client pi-durable` respectively. This is a local
   integration package with installation documentation and offline tests. Pi supervision requires
   the TypeScript bridge in addition to `foreman-core`; the guide covers source installation and
-  npm installation once the package is published.
+  installation from the published `@thruwire/foreman-pi` npm package.
 - [`claude/`](claude/) reserves the future Claude Code integration location. It is not currently an
   installable plugin.

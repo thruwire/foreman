@@ -402,7 +402,8 @@ The [Pi and Pi Durable bridges](integrations/pi/README.md) forward native extens
 task hooks to the same runtime. They include prompt routing, tool supervision, completion
 continuations, and a Durable replay contract. Pi supervision requires both `foreman-core` and the
 separate TypeScript bridge; installing the Python core alone does not load the Pi extension.
-See the bridge guide for npm installation after publication and building from source today.
+Install the published bridge with `pi install npm:@thruwire/foreman-pi`.
+See the bridge guide for Pi Durable setup and building from source.
 
 ## Persistence and inspection
 
