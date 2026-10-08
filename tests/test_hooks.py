@@ -214,6 +214,57 @@ def runtime(tmp_path, model=None, runtime_config=None, responsibilities_dir=None
 
 
 @pytest.mark.asyncio
+async def test_deepagents_routing_steering_failure_evidence_and_completion(tmp_path) -> None:
+    model = StubModel(work_off_track=0.96)
+    supervisor, store, router = runtime(tmp_path, model)
+    adapter = hook_adapter("deepagents")
+    base = {"session_id": "dcode-session", "cwd": str(tmp_path), "prompt_id": "p1"}
+
+    async def native(name, **fields):
+        normalized = adapter.parse({**base, "hook_event_name": name, **fields})
+        return adapter.render(normalized, await supervisor.handle(normalized))
+
+    assert await native("SessionStart") == {}
+    await native("UserPromptSubmit", prompt="Implement the feature")
+    await native("UserPromptSubmit", prompt="Implement the feature")
+    assert router.calls == ["Implement the feature"]
+    output = await native("PostToolUseFailure", tool_name="Bash", tool_use_id="c1",
+                          tool_input={"command": "pytest"}, error="tests failed")
+    assert output["hookSpecificOutput"] == {
+        "hookEventName": "PostToolUseFailure",
+        "additionalContext": "active worker appears off track",
+    }
+    session = store.load("dcode-session", "deepagents")
+    assert session.state.workers[0].steer_count == 1
+    assert "tests failed" in model.calls[0][0].latest_worker_output
+    # Let completion checks determine the next outcome independently of drift.
+    model.scores["work_off_track"] = 0
+    output = await native("Stop", stop_hook_active=False, last_assistant_message="Started")
+    assert output["decision"] == "block"
+    output = await native("Stop", stop_hook_active=True, last_assistant_message="Still incomplete")
+    assert output["continue"] is False
+    assert "one automatic continuation" in output["systemMessage"]
+    assert await native("SessionEnd") == {}
+    assert store.load("dcode-session", "deepagents") is None
+
+
+@pytest.mark.asyncio
+async def test_deepagents_pre_tool_block(tmp_path) -> None:
+    supervisor, _, _ = runtime(tmp_path, StubModel(needs_human=0.99))
+    adapter = hook_adapter("deepagents")
+    base = {"session_id": "dcode-session", "cwd": str(tmp_path), "prompt_id": "p1"}
+    submitted = adapter.parse({
+        **base, "hook_event_name": "UserPromptSubmit", "prompt": "Fix tests",
+    })
+    await supervisor.handle(submitted)
+    before = adapter.parse({**base, "hook_event_name": "PreToolUse",
+                            "tool_name": "Bash", "tool_use_id": "c1",
+                            "tool_input": {"command": "pytest"}})
+    output = adapter.render(before, await supervisor.handle(before))
+    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+@pytest.mark.asyncio
 async def test_prompt_routes_multiple_built_in_toml_responsibilities(tmp_path) -> None:
     supervisor, store, router = runtime(tmp_path)
 

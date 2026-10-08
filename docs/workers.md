@@ -23,6 +23,7 @@ one capability and three coroutines:
 | Codex exec | `FOREMAN_CODEX_BACKEND=exec` | No — stop/retry only |
 | OpenCode | `FOREMAN_WORKER_BACKEND=opencode` | No — stop/retry only |
 | Hermes | `FOREMAN_WORKER_BACKEND=hermes` | No — stop/retry only |
+| Deep Agents Code | `FOREMAN_WORKER_BACKEND=deepagents` | No — stop/retry only |
 
 The OpenCode backend shells out to `opencode run` in non-interactive mode.
 The prompt is passed positionally and `--auto` keeps the headless run from
@@ -45,6 +46,14 @@ stream. Command flags can be tuned per worker
 `FOREMAN_HERMES_MAX_TURNS`, and `FOREMAN_HERMES_TOOLSETS`. Like the other
 non-interactive CLIs, Hermes has no live-turn input channel: `steer` always
 returns `False` and the policy falls back to stop/retry.
+
+The Deep Agents backend uses the separately installed `dcode` CLI
+(`deepagents-code >= 0.1.83`, Python 3.12+). It runs `--non-interactive` with
+`--max-turns`, `--timeout`, and a configurable `--shell-allow-list` (default
+`recommended`). It streams bounded text chunks from both pipes and maps native
+budget exit 124 to a timed-out worker. It does not opt into project hook trust
+or configure a sandbox. See the [Deep Agents setup guide](../integrations/deepagents/README.md)
+for model credentials, backend settings, and the separate native-hook path.
 
 ## Adding a backend
 

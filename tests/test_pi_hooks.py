@@ -88,4 +88,4 @@ def test_pi_cli_excluded_repository_is_noop(client, native, tmp_path, monkeypatc
 
 
 def test_pi_clients_registered():
-    assert available_hook_clients() == ("codex", "pi", "pi-durable")
+    assert available_hook_clients() == ("codex", "deepagents", "pi", "pi-durable")

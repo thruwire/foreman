@@ -7,6 +7,9 @@ are available to marketplace discovery before installation.
 
 - The [Foreman Codex plugin](https://github.com/thruwire/marketplace/tree/main/plugins/foreman)
   invokes the core `foreman hook --client codex` protocol.
+- [`deepagents/`](deepagents/) documents the core dcode worker and native hook adapter.
+  `foreman deepagents setup` merges native hook configuration; no separate bridge or plugin
+  package is required.
 - [`pi/`](pi/) supplies buildable Pi extension and Pi Durable task-hook bridges, invoking
   `foreman hook --client pi` and `foreman hook --client pi-durable` respectively. This is a local
   integration package with installation documentation and offline tests. Pi supervision requires

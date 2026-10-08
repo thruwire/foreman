@@ -3,7 +3,7 @@
 Foreman's PyPI distribution is `foreman-core`. It provides the `foreman` import package and
 `foreman` command.
 
-Prepared release notes: [Foreman 0.4.4](releases/0.4.4.md).
+Prepared release notes: [Foreman 0.5.0](releases/0.5.0.md).
 
 ## One-time setup
 

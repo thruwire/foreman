@@ -35,7 +35,14 @@ from foreman.routing import (
     resolve_hierarchical_routing,
 )
 from foreman.steering import build_steering_message
-from foreman.workers import CodexAppServerWorker, CodexWorker, HermesWorker, OpenCodeWorker, Worker
+from foreman.workers import (
+    CodexAppServerWorker,
+    CodexWorker,
+    DeepAgentsWorker,
+    HermesWorker,
+    OpenCodeWorker,
+    Worker,
+)
 from foreman.workers.codex import mission_for
 
 EventSink = Callable[[FactoryEvent], object]
@@ -159,6 +166,15 @@ class FactoryRuntime:
 
     def _default_worker_factory(self, worker_type: WorkerType) -> Worker:
         del worker_type
+        if self.config.worker_backend == "deepagents":
+            return DeepAgentsWorker(
+                executable=self.config.deepagents_executable,
+                model=self.config.deepagents_model,
+                max_turns=self.config.deepagents_max_turns,
+                shell_allow_list=self.config.deepagents_shell_allow_list,
+                output_limit=self.config.output_limit,
+                graceful_termination_seconds=self.config.graceful_termination_seconds,
+            )
         if self.config.worker_backend == "opencode":
             return OpenCodeWorker(
                 output_limit=self.config.output_limit,

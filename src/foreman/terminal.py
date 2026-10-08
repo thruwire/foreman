@@ -28,7 +28,7 @@ class TerminalRenderer:
                 else "Worker"
             )
             self.console.print(f"{label} {payload.get('worker_id')} started.")
-            self.console.print("Codex is working... Foreman is watching independently.")
+            self.console.print("Worker is running... Foreman is watching independently.")
         elif event.event_type in {
             EventType.WORKER_COMPLETED,
             EventType.WORKER_FAILED,

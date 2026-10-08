@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import sys
 from datetime import UTC
 from pathlib import Path
@@ -15,6 +16,7 @@ from rich.table import Table
 
 from foreman import __version__
 from foreman.config import FactoryConfig
+from foreman.deepagents_setup import install_deepagents_hooks
 from foreman.extensions import (
     ExtensionError,
     ExtensionIdentity,
@@ -58,6 +60,8 @@ app = typer.Typer(
 )
 extension_app = typer.Typer(help="Manage configured Foreman extensions.", no_args_is_help=True)
 app.add_typer(extension_app, name="extension")
+deepagents_app = typer.Typer(help="Set up native Deep Agents Code hooks.", no_args_is_help=True)
+app.add_typer(deepagents_app, name="deepagents")
 console = Console()
 
 
@@ -89,6 +93,32 @@ def _run_async(runtime: FactoryRuntime) -> FactoryStatus:
 
 def _extension_manager(data_dir: Path | None) -> ExtensionManager:
     return ExtensionManager(data_dir=data_dir)
+
+
+@deepagents_app.command("setup")
+def deepagents_setup(
+    hooks_file: Annotated[
+        Path | None,
+        typer.Option("--hooks-file", dir_okay=False,
+                     help="Hooks v2 file (default: ~/.deepagents/hooks.json)"),
+    ] = None,
+    foreman_executable: Annotated[
+        str | None,
+        typer.Option("--foreman-executable", help="Foreman command to invoke from dcode"),
+    ] = None,
+) -> None:
+    """Add Foreman lifecycle hooks, preserving existing handlers and settings."""
+    path = (hooks_file or Path.home() / ".deepagents" / "hooks.json").expanduser().resolve()
+    executable = foreman_executable or shutil.which("foreman") or "foreman"
+    try:
+        changed = install_deepagents_hooks(path, executable)
+    except (OSError, ValueError) as error:
+        typer.echo(f"Deep Agents hook setup failed: {error}", err=True)
+        raise typer.Exit(code=2) from error
+    typer.echo(f"{'Installed' if changed else 'Already installed'} Foreman hooks: {path}")
+    typer.echo(
+        "Configure Foreman credentials and responsibilities, then start a fresh dcode session."
+    )
 
 
 @extension_app.command("login")
@@ -355,7 +385,7 @@ def run(
         ),
     ] = None,
 ) -> None:
-    """Launch a real Codex worker supervised by TypeSafe AI Jev."""
+    """Launch a coding worker supervised by TypeSafe AI Jev."""
 
     # Capture the process-level factory setting before reading the target repository's
     # local environment. A managed repository cannot select Foreman's responsibilities.

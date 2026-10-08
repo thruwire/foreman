@@ -130,7 +130,7 @@ than Codex-specific types.
 ### Worker backends
 
 The semantic-supervision loop is agent-agnostic. Select the worker backend with
-`FOREMAN_WORKER_BACKEND` (`codex`, the default, `opencode`, or `hermes`):
+`FOREMAN_WORKER_BACKEND` (`codex`, the default, `opencode`, `hermes`, or `deepagents`):
 
 ```bash
 FOREMAN_WORKER_BACKEND=opencode foreman run --repo ./my-project --job "Add request retries"
@@ -138,9 +138,15 @@ FOREMAN_WORKER_BACKEND=opencode foreman run --repo ./my-project --job "Add reque
 
 The OpenCode backend runs `opencode run` non-interactively and streams its output like the Codex
 exec backend. The Hermes backend runs `hermes chat` in headless single-query mode and decodes its
-newline-delimited JSON events into tool-activity summaries. Live steering into an active turn is only
+newline-delimited JSON events into tool-activity summaries. The Deep Agents backend runs the
+separately installed `dcode` CLI headlessly with bounded output and turn/time budgets.
+Live steering into an active turn is only
 available with the Codex App Server backend; other backends degrade to stop/retry. See [Worker
 backends](docs/workers.md) for the `Worker` protocol and how to add your own.
+
+Deep Agents also supports interactive attached supervision through native hooks. The core
+`foreman deepagents setup` command merges those hooks while preserving existing configuration.
+See the [Deep Agents setup guide](integrations/deepagents/README.md) for both paths.
 
 ## What Foreman watches
 
@@ -284,6 +290,8 @@ invent one. Its minimum assessment interval defaults to five seconds and is conf
 - For the OpenCode backend: the [OpenCode CLI](https://opencode.ai) on `PATH` with an available
   provider and model.
 - For the Hermes backend: the Hermes Agent CLI (`hermes`) on `PATH`.
+- For the Deep Agents backend: `dcode` on `PATH` (`deepagents-code >= 0.1.83`, which needs
+  Python 3.12+) and credentials for the selected model provider.
 
 ## Installation
 
@@ -382,7 +390,7 @@ printf '%s\n' '{"session_id":"thr_123","cwd":"/workspace/project","hook_event_na
   | foreman hook --client codex
 ```
 
-The explicit `--client` selects `codex`, `pi`, or `pi-durable`; `codex` remains
+The explicit `--client` selects `codex`, `deepagents`, `pi`, or `pi-durable`; `codex` remains
 the compatibility default. Foreman does not infer a client from arbitrary JSON, and unknown
 clients fail closed. The adapter normalizes events before they reach the shared attached-worker
 runtime and translates semantic outcomes back into client-specific hook JSON.
@@ -447,7 +455,11 @@ The most useful environment overrides are:
 | `FOREMAN_MAX_ITERATIONS` | `20` | Semantic decision ceiling |
 | `FOREMAN_MAX_CONSECUTIVE_ASSESSMENT_FAILURES` | `3` | Tolerated supervisor failures before escalation |
 | `FOREMAN_CODEX_BACKEND` | `app-server` | `app-server` for steering or `exec` fallback |
-| `FOREMAN_WORKER_BACKEND` | `codex` | `codex`, `opencode`, or `hermes` worker backend |
+| `FOREMAN_WORKER_BACKEND` | `codex` | `codex`, `opencode`, `hermes`, or `deepagents` worker backend |
+| `FOREMAN_DEEPAGENTS_EXECUTABLE` | `dcode` | Installed Deep Agents Code executable |
+| `FOREMAN_DEEPAGENTS_MODEL` | unset | Native provider/model identifier |
+| `FOREMAN_DEEPAGENTS_MAX_TURNS` | `200` | Headless agentic turn limit |
+| `FOREMAN_DEEPAGENTS_SHELL_ALLOW_LIST` | `recommended` | Native shell preset or command allow-list |
 | `FOREMAN_STEERING_ENABLED` | `true` | Allow Jev-informed active-turn guidance |
 | `FOREMAN_MAX_STEERS_PER_WORKER` | `1` | Steering attempts before stop/retry |
 | `FOREMAN_STEERING_GRACE_SECONDS` | `30` | Time to recover before another intervention |

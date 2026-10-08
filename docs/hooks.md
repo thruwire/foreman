@@ -29,7 +29,8 @@ target repository.
 ## Client adapters
 
 The `--client` option selects the protocol adapter. Foreman does not guess from arbitrary input
-JSON. It ships `codex`, `pi`, and `pi-durable` adapters. Codex remains the default for compatibility:
+JSON. It ships `codex`, `deepagents`, `pi`, and `pi-durable` adapters.
+Codex remains the default for compatibility:
 
 ```bash
 foreman hook --client codex
@@ -40,6 +41,15 @@ its assistant's event names and fields into `HookEvent`, then renders Foreman's 
 `HookOutcome` in the assistant's required response shape. The routing, observation, policy, and
 session code only sees those normalized types. Adding another assistant therefore requires a new
 adapter and registry entry, not another supervision runtime.
+
+Deep Agents Code uses native Hooks v2 command handlers. Run `foreman deepagents setup`
+to merge the lifecycle handlers into its user configuration, then start a fresh `dcode`
+session. `foreman hook --client deepagents` normalizes native session, prompt, tool,
+failure, and stop events; it preserves `prompt_id` and `stop_hook_active`. Post-tool
+stop directives become native feedback, while pre-tool and completion hooks provide
+operation blocking and continuation control. See the
+[Deep Agents setup guide](../integrations/deepagents/README.md) for credentials,
+responsibilities, configuration preservation, native limitations, and verification.
 
 Pi uses the TypeScript [bridge package](../integrations/pi/README.md), which wraps native events
 in a session/cwd envelope and applies semantic response objects through Pi's native APIs. Its

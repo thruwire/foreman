@@ -10,6 +10,8 @@ These notes explain Foreman's design and implementation:
 - [Responsibility configuration and routing](routing.md) explains central definitions and matching.
 - [Extensions](extensions.md) defines registration, lifecycle, snapshots, and hierarchical routing.
 - [Coding-assistant hooks](hooks.md) describes the adapter-neutral attached-worker protocol.
+- [Worker backends](workers.md) describes owned coding-agent transports.
+- [Deep Agents setup](../integrations/deepagents/README.md) covers dcode workers and native hooks.
 - [Live steering](steering.md) explains how Jev guidance reaches an active Codex turn.
 - [Releasing](releasing.md) documents the build and trusted-publishing process.
 

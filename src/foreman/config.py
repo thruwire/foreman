@@ -64,7 +64,11 @@ class FactoryConfig(BaseModel):
     max_workers: int = Field(default=3, ge=1)
     max_retries: int = Field(default=1, ge=0)
     max_iterations: int = Field(default=20, ge=1)
-    worker_backend: Literal["codex", "opencode", "hermes"] = "codex"
+    worker_backend: Literal["codex", "opencode", "hermes", "deepagents"] = "codex"
+    deepagents_executable: str = "dcode"
+    deepagents_model: str | None = None
+    deepagents_max_turns: int = Field(default=200, ge=1)
+    deepagents_shell_allow_list: str = "recommended"
     hermes_executable: str = "hermes"
     hermes_model: str | None = None
     hermes_provider: str | None = None
@@ -112,6 +116,10 @@ class FactoryConfig(BaseModel):
             "FOREMAN_MAX_RETRIES": ("max_retries", int),
             "FOREMAN_MAX_ITERATIONS": ("max_iterations", int),
             "FOREMAN_WORKER_BACKEND": ("worker_backend", str),
+            "FOREMAN_DEEPAGENTS_EXECUTABLE": ("deepagents_executable", str),
+            "FOREMAN_DEEPAGENTS_MODEL": ("deepagents_model", str),
+            "FOREMAN_DEEPAGENTS_MAX_TURNS": ("deepagents_max_turns", int),
+            "FOREMAN_DEEPAGENTS_SHELL_ALLOW_LIST": ("deepagents_shell_allow_list", str),
             "FOREMAN_HERMES_EXECUTABLE": ("hermes_executable", str),
             "FOREMAN_HERMES_MODEL": ("hermes_model", str),
             "FOREMAN_HERMES_PROVIDER": ("hermes_provider", str),
