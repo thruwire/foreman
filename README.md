@@ -62,6 +62,7 @@ depends on the quality of the configured checks, evidence, thresholds, and under
 - [Live steering](docs/steering.md)
 - [Worker backends](docs/workers.md)
 - [Codex plugin](https://github.com/thruwire/marketplace/tree/main/plugins/foreman)
+- [Deep Agents plugin and setup](integrations/deepagents/README.md#marketplace-plugin)
 - [Agent integration layout](integrations/README.md)
 
 ## Contributing
@@ -144,9 +145,11 @@ Live steering into an active turn is only
 available with the Codex App Server backend; other backends degrade to stop/retry. See [Worker
 backends](docs/workers.md) for the `Worker` protocol and how to add your own.
 
-Deep Agents also supports interactive attached supervision through native hooks. The core
-`foreman deepagents setup` command merges those hooks while preserving existing configuration.
-See the [Deep Agents setup guide](integrations/deepagents/README.md) for both paths.
+Deep Agents also supports interactive attached supervision through native hooks. Install
+`foreman-deepagents@thruwire` from our marketplace, or use the core `foreman deepagents setup`
+command to merge hooks into native configuration. Choose one installation method to avoid
+duplicate assessments. See the [Deep Agents setup guide](integrations/deepagents/README.md)
+for installation, credentials, and both supervision paths.
 
 ## What Foreman watches
 

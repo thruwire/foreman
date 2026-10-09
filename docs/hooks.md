@@ -42,9 +42,10 @@ its assistant's event names and fields into `HookEvent`, then renders Foreman's 
 session code only sees those normalized types. Adding another assistant therefore requires a new
 adapter and registry entry, not another supervision runtime.
 
-Deep Agents Code uses native Hooks v2 command handlers. Run `foreman deepagents setup`
-to merge the lifecycle handlers into its user configuration, then start a fresh `dcode`
-session. `foreman hook --client deepagents` normalizes native session, prompt, tool,
+Deep Agents Code uses native Hooks v2 command handlers. Install
+`foreman-deepagents@thruwire` with dcode's plugin manager, or run `foreman deepagents setup`
+to merge the lifecycle handlers into its user configuration. Choose one method and start
+a fresh `dcode` session. `foreman hook --client deepagents` normalizes native session, prompt, tool,
 failure, and stop events; it preserves `prompt_id` and `stop_hook_active`. Post-tool
 stop directives become native feedback, while pre-tool and completion hooks provide
 operation blocking and continuation control. See the

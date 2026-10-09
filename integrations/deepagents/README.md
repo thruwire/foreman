@@ -3,8 +3,9 @@
 Foreman core supports both headless workers and native hooks for LangChain's
 [Deep Agents Code](https://github.com/langchain-ai/deepagents/tree/main/libs/code)
 (`dcode`). The CLI supplies the agent harness; Foreman owns responsibility routing,
-evidence collection, interventions, verification, and completion checks. No Foreman
-plugin or LangChain SDK dependency is required.
+evidence collection, interventions, verification, and completion checks. Foreman core
+has no LangChain SDK dependency. Native hooks can be installed through the
+`foreman-deepagents` marketplace plugin or the core setup command.
 
 ## Requirements and installation
 
@@ -37,8 +38,9 @@ an Anthropic model. Foreman inherits these variables into the worker, while remo
 its own `TYPESAFE_*` variables. Do not put supervisor credentials in the repository.
 
 Export `TYPESAFE_API_KEY` in the terminal running `foreman run`. For native hooks,
-it may be supplied by the `dcode` environment or by Foreman's protected central
-`${FOREMAN_DATA_DIR:-~/.foreman}/.env`:
+use Foreman's protected central `${FOREMAN_DATA_DIR:-~/.foreman}/.env`.
+Native hook environments may remove credential variables, so do not rely on
+`TYPESAFE_API_KEY` being inherited from dcode:
 
 ```bash
 mkdir -p ~/.foreman
@@ -48,9 +50,7 @@ chmod 600 ~/.foreman/.env
 ```
 
 Edit that file to add `TYPESAFE_API_KEY=your-key`. Existing process variables take
-precedence. When using both paths, keep the central file configured too: a headless
-worker does not inherit Foreman's TypeSafe credentials, but its installed user hooks
-may still call Foreman. The `foreman run` command requires the exported key.
+precedence when available. The `foreman run` command requires the exported key.
 
 ## Foreman-launched jobs
 
@@ -65,9 +65,9 @@ foreman run --repo /absolute/path/to/project --job "Add request retries and veri
 Foreman runs `dcode --non-interactive <mission>` in the repository with a turn limit,
 a wall-clock timeout, and a shell allow-list. Both output pipes are streamed in bounded
 chunks, including output without newlines. No hook setup is necessary for this path.
-Native user hooks already installed in `dcode` still run; project hooks are not
-automatically trusted. Choose either supervision path initially to avoid duplicate
-assessments when user hooks and an owned worker are both active.
+Native user and enabled plugin hooks already installed in `dcode` still run; project
+hooks are not automatically trusted. Use a profile without Foreman hooks, or disable
+`foreman-deepagents@thruwire`, for Foreman-owned jobs to avoid duplicate assessments.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -104,7 +104,53 @@ for global supervision or use `[]` to disable it. Central responsibility overrid
 custom criteria, and extensions work just as with Codex and Pi; see
 [responsibility configuration](../../docs/hooks.md#responsibility-configuration).
 
-Install the native lifecycle handlers:
+Choose one of the following hook installation methods. Both use the same core
+adapter and responsibilities. Registering both makes every matching handler execute,
+causing duplicate assessments.
+
+### Marketplace plugin
+
+The [Foreman Deep Agents plugin](https://github.com/thruwire/marketplace/tree/main/plugins/foreman-deepagents)
+packages the seven lifecycle handlers and a setup/diagnostic skill. The existing
+`foreman@thruwire` plugin targets Codex; use `foreman-deepagents@thruwire` with dcode.
+The plugin requires the separately installed runtime versions listed above and
+`foreman` on the PATH used to launch dcode.
+
+After configuring central credentials, repository scope, and responsibilities,
+review the plugin's hooks and launcher, then install:
+
+```bash
+dcode plugin marketplace add thruwire/marketplace
+dcode plugin install foreman-deepagents@thruwire
+dcode plugin list --json
+```
+
+If the marketplace is already registered, re-run `dcode plugin marketplace add thruwire/marketplace`
+to refresh its catalog before installing; this works with CLI 0.1.83. Start a fresh
+dcode session in your repository and submit your task.
+Installing and enabling the plugin authorizes its hooks; workspace trust governs
+project hooks separately. `/reload` refreshes plugin discovery, but a fresh session
+ensures Foreman receives startup and the original prompt.
+
+If you previously ran `foreman deepagents setup`, back up the hook files, then remove
+only Foreman's handlers invoking `hook --client deepagents` from `~/.deepagents/hooks.json`
+and any project `.deepagents/hooks.json`. Preserve other handlers and settings. Plugin
+installation does not modify these files or remove duplicate registrations for you.
+
+To disable or remove the plugin:
+
+```bash
+dcode plugin disable foreman-deepagents@thruwire
+# Or:
+dcode plugin uninstall foreman-deepagents@thruwire
+```
+
+Start a fresh session afterward. This does not remove handlers installed separately
+by setup.
+
+### Direct hook setup
+
+Use this method when you prefer native hook configuration without a plugin:
 
 ```bash
 foreman deepagents setup
@@ -161,9 +207,12 @@ See the [native hook contract](https://github.com/langchain-ai/deepagents/blob/m
 
 - Check `dcode --help` includes `--non-interactive`, `--max-turns`, `--timeout`, and
   `--shell-allow-list`. Upgrade `deepagents-code` if these are absent.
-- Inspect `~/.deepagents/hooks.json`: the seven handlers should invoke your Foreman
-  executable with `hook --client deepagents`. Repeat setup with the same executable
-  to verify it reports `Already installed`.
+- For the plugin, inspect `dcode plugin list --json` for an enabled
+  `foreman-deepagents@thruwire`, and check that `foreman` is on dcode's PATH. Start a
+  fresh session after installing. A missing user hook file is expected with this method.
+- For direct setup, inspect `~/.deepagents/hooks.json`: the seven handlers should
+  invoke your Foreman executable with `hook --client deepagents`. Repeat setup with
+  the same executable to verify it reports `Already installed`.
 - During a task in a fresh interactive session, look for a `client: "deepagents"`
   record under `${FOREMAN_DATA_DIR:-~/.foreman}/sessions/`. Session-end removes it.
   An excluded repository or disabled responsibility registry produces no session state.
