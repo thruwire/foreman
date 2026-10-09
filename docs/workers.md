@@ -25,6 +25,15 @@ one capability and three coroutines:
 | Hermes | `FOREMAN_WORKER_BACKEND=hermes` | No — stop/retry only |
 | Deep Agents Code | `FOREMAN_WORKER_BACKEND=deepagents` | No — stop/retry only |
 
+## Pi and Pi Durable
+
+Pi and Pi Durable use [attached supervision through their native bridges](../integrations/pi/README.md).
+The host runs the agent, and the bridge forwards lifecycle events to Foreman for assessment
+and feedback. These integrations do not currently implement the `Worker` protocol used by
+`foreman run`, so they are not selectable with `FOREMAN_WORKER_BACKEND`.
+
+## Backend behavior
+
 The OpenCode backend shells out to `opencode run` in non-interactive mode.
 The prompt is passed positionally and `--auto` keeps the headless run from
 stalling on permission prompts. Auto mode approves requests that are not
