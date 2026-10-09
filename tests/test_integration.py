@@ -206,7 +206,10 @@ async def test_noisy_events_are_coalesced(tmp_path) -> None:
         repository=tmp_path,
         job="Small job",
         model=model,
-        config=config(assessment_min_interval_seconds=0.1),
+        # Completion bypasses debounce. Keep routine assessments outside the
+        # worker's lifetime so slower event persistence cannot consume the
+        # scripted ready result while the output burst is still in progress.
+        config=config(assessment_min_interval_seconds=5, periodic_assessment_seconds=5),
         worker_factory=lambda _: FakeWorker(
             output_lines=[str(number) for number in range(50)], delay_seconds=0
         ),
@@ -219,6 +222,8 @@ async def test_noisy_events_are_coalesced(tmp_path) -> None:
     ]
     assert len(output_events) == 50
     assert len(model.calls) == 2
+    assert state.status is FactoryStatus.FINISHED
+    assert not model.calls[-1].active_workers
 
 
 @pytest.mark.asyncio
