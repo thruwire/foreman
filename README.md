@@ -3,15 +3,21 @@
 Foreman watches the software factory floor with [TypeSafe AI's Jev](https://docs.typesafe.ai/introduction),
 placing a fast decision model above slower coding agents.
 
-Give it a ticket, specification, bug report, or any free-form software job. A
-[Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli) or
-[OpenCode](https://opencode.ai) worker does the software engineering while Foreman independently
-assesses whether the implementation is complete, requirements are satisfied, tests are sufficient,
-verification is needed, or human input is required.
+Give it a ticket, specification, bug report, or any free-form software job. Foreman can run
+[Codex](https://learn.chatgpt.com/docs/developer-commands?surface=cli),
+[OpenCode](https://opencode.ai), [Hermes](docs/workers.md), or
+[LangChain's Deep Agents Code (dcode)](integrations/deepagents/README.md) as workers.
+It can also attach supervision to supported coding-agent sessions, including
+[Pi and Pi Durable](integrations/pi/README.md).
+
+The coding agent does the software engineering. Foreman independently assesses completion and
+requirements against the original job. It also checks whether test evidence is sufficient and
+whether verification or human input is needed. You can configure additional checks and
+responsibilities for your workflow.
 
 ```text
                          SOFTWARE FACTORY
-         Codex/OpenCode    Codex/OpenCode          Tests
+         Coding agent     Coding agent           Tests
             worker             worker                │
                │                  │                  │
                └──────────────────┼──────────────────┘
