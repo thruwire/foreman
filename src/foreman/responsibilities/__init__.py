@@ -27,6 +27,7 @@ from foreman.responsibilities.configuration import (
     load_responsibility_configs,
     responsibility_config_dir,
 )
+from foreman.responsibilities.smoothing import ExponentialSmoother
 
 __all__ = [
     "COMPLETION",
@@ -39,6 +40,7 @@ __all__ = [
     "CheckFileConfig",
     "CompletionResponsibility",
     "DocumentationResponsibility",
+    "ExponentialSmoother",
     "HumanEscalationResponsibility",
     "RepositoryInstructionsResponsibility",
     "Responsibility",

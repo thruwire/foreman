@@ -9,6 +9,7 @@ from typing import Any, ClassVar, Self
 from foreman.config import FactoryConfig
 from foreman.models import Directive, FactoryState, ForemanResult, InterventionType
 from foreman.responsibilities.base import Check, ResponsibilityRegistry, ResponsibilityRoute
+from foreman.responsibilities.smoothing import ExponentialSmoother
 
 COMPLETION = "core.completion"
 VERIFICATION = "core.verification"
@@ -22,8 +23,41 @@ DOCUMENTATION = "quality.documentation"
 class _CheckConfiguredResponsibility:
     check_definitions: tuple[Check, ...] = ()
     minimum_thresholds: Mapping[str, float] = field(default_factory=dict, repr=False)
+    _smoother: ExponentialSmoother | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
     required_check_ids: ClassVar[frozenset[str]]
     required_minimum_keys: ClassVar[frozenset[str]] = frozenset()
+
+    def _get_smoother(self) -> ExponentialSmoother:
+        smoother = self._smoother
+        if smoother is None:
+            # Each responsibility lazily owns its smoother, so smoothing state is
+            # never shared between responsibilities and never written back onto
+            # the shared ForemanResult.
+            smoother = self._smoother = ExponentialSmoother(alpha=self.config.score_smoothing_alpha)
+        return smoother
+
+    def _smoothed_probability(
+        self, result: ForemanResult, responsibility_id: str, check_id: str
+    ) -> float:
+        raw = result.probability(responsibility_id, check_id)
+        return self._get_smoother().smooth(f"{responsibility_id}__{check_id}", raw)
+
+    def _safety_probability(
+        self, result: ForemanResult, responsibility_id: str, check_id: str
+    ) -> float:
+        """Sample a safety signal (``needs_human``, ``work_off_track``) once.
+
+        Safety signals use fast-attack smoothing: a newly high reading is
+        never damped, so escalation fires on the assessment that reports it,
+        while falling edges ease down through the EMA to avoid flapping.
+        Damping a newly high safety signal would be a safety regression;
+        damping completion noise is the intended use of
+        :meth:`_smoothed_probability`.
+        """
+        raw = result.probability(responsibility_id, check_id)
+        return self._get_smoother().smooth_safety(f"{responsibility_id}__{check_id}", raw)
 
     def configured_checks(self, checks: Sequence[Check]) -> Self:
         configured = tuple(checks)
@@ -123,7 +157,9 @@ class HumanEscalationResponsibility(_CheckConfiguredResponsibility):
     )
 
     def directives(self, state: FactoryState, result: ForemanResult) -> list[Directive]:
-        score = result.probability(self.id, "needs_human")
+        # Safety signal: sampled every assessment and never damped on a rising
+        # edge, so a newly high needs_human escalates immediately.
+        score = self._safety_probability(result, self.id, "needs_human")
         if score < self.minimum(self.id, "needs_human"):
             return []
         return [
@@ -157,7 +193,7 @@ class RepositoryInstructionsResponsibility(_CheckConfiguredResponsibility):
                 raise ValueError(f"invalid repository instruction path: {filename!r}")
 
     def directives(self, state: FactoryState, result: ForemanResult) -> list[Directive]:
-        score = result.probability(self.id, "agents_md_drift")
+        score = self._smoothed_probability(result, self.id, "agents_md_drift")
         if score < self.minimum(self.id, "agents_md_drift"):
             return []
         directive = _worker_warning(
@@ -180,9 +216,11 @@ class DocumentationResponsibility(_CheckConfiguredResponsibility):
     )
 
     def directives(self, state: FactoryState, result: ForemanResult) -> list[Directive]:
+        # Sampled before the state gate so the EMA tracks every assessment,
+        # even when active workers mean no directive can fire.
+        score = self._smoothed_probability(result, self.id, "documentation_sufficient")
         if state.active_workers:
             return []
-        score = result.probability(self.id, "documentation_sufficient")
         if score >= self.minimum(self.id, "documentation_sufficient"):
             return []
         return [
@@ -209,8 +247,11 @@ class WorkerHealthResponsibility(_CheckConfiguredResponsibility):
     )
 
     def directives(self, state: FactoryState, result: ForemanResult) -> list[Directive]:
-        stuck = result.probability(self.id, "worker_stuck")
-        off_track = result.probability(self.id, "work_off_track")
+        # Every thresholded key is sampled exactly once per assessment, before
+        # any threshold logic. work_off_track is a safety signal: it uses
+        # fast-attack smoothing so a newly high reading is never damped.
+        stuck = self._smoothed_probability(result, self.id, "worker_stuck")
+        off_track = self._safety_probability(result, self.id, "work_off_track")
         candidates: list[tuple[float, str]] = []
         if off_track >= self.minimum(self.id, "work_off_track"):
             candidates.append((off_track, "active worker appears off track"))
@@ -246,6 +287,18 @@ class CompletionResponsibility(_CheckConfiguredResponsibility):
     )
 
     def directives(self, state: FactoryState, result: ForemanResult) -> list[Directive]:
+        # Every thresholded score is read and smoothed exactly once per
+        # assessment, before any state gates or boolean logic. Sampling inside
+        # short-circuiting expressions would advance one key's EMA while
+        # leaving another's behind, so a later decision could combine EMAs
+        # from different assessment histories.
+        ready_to_finish = self._smoothed_probability(result, self.id, "ready_to_finish")
+        requirements_satisfied = self._smoothed_probability(
+            result, self.id, "requirements_satisfied"
+        )
+        tests_sufficient = self._smoothed_probability(result, VERIFICATION, "tests_sufficient")
+        needs_verification = self._smoothed_probability(result, VERIFICATION, "needs_verification")
+
         if state.active_workers:
             return []
         if (
@@ -263,16 +316,13 @@ class CompletionResponsibility(_CheckConfiguredResponsibility):
             ]
 
         finish_ready = (
-            result.probability(self.id, "ready_to_finish")
-            >= self.minimum(self.id, "ready_to_finish")
-            and result.probability(self.id, "requirements_satisfied")
-            >= self.minimum(self.id, "requirements_satisfied")
-            and result.probability(VERIFICATION, "tests_sufficient")
-            >= self.minimum(VERIFICATION, "tests_sufficient")
+            ready_to_finish >= self.minimum(self.id, "ready_to_finish")
+            and requirements_satisfied >= self.minimum(self.id, "requirements_satisfied")
+            and tests_sufficient >= self.minimum(VERIFICATION, "tests_sufficient")
         )
-        verification_resolved = state.verification_completed or result.probability(
-            VERIFICATION, "needs_verification"
-        ) < self.minimum(VERIFICATION, "needs_verification")
+        verification_resolved = state.verification_completed or (
+            needs_verification < self.minimum(VERIFICATION, "needs_verification")
+        )
         if finish_ready and verification_resolved:
             return [
                 _directive(
@@ -309,12 +359,17 @@ class VerificationResponsibility(_CheckConfiguredResponsibility):
     )
 
     def directives(self, state: FactoryState, result: ForemanResult) -> list[Directive]:
+        # Both keys are sampled exactly once per assessment, before the boolean
+        # logic, so a failing needs_verification can never starve
+        # implementation_complete's EMA of its sample.
+        needs_verification = self._smoothed_probability(result, self.id, "needs_verification")
+        implementation_complete = self._smoothed_probability(
+            result, COMPLETION, "implementation_complete"
+        )
         should_verify = (
             not state.active_workers
-            and result.probability(self.id, "needs_verification")
-            >= self.minimum(self.id, "needs_verification")
-            and result.probability(COMPLETION, "implementation_complete")
-            >= self.minimum(COMPLETION, "implementation_complete")
+            and needs_verification >= self.minimum(self.id, "needs_verification")
+            and implementation_complete >= self.minimum(COMPLETION, "implementation_complete")
             and not state.verification_started
         )
         if not should_verify:
