@@ -1,6 +1,8 @@
 """Foreman: an asynchronous semantic supervisor for coding agents."""
 
 from foreman.config import FactoryConfig
+from foreman.decision_models import DecisionModelAdapter, JevDecisionAdapter, OpenAIDecisionAdapter
+from foreman.foreman import DecisionForemanModel
 from foreman.models import (
     Directive,
     FactoryAssessment,
@@ -15,11 +17,18 @@ from foreman.responsibilities import (
     ResponsibilityRoute,
     configured_registry,
 )
-from foreman.routing import GlobalResponsibilityRouter, JevResponsibilityRouter, RoutingDecision
+from foreman.routing import (
+    DecisionResponsibilityRouter,
+    GlobalResponsibilityRouter,
+    JevResponsibilityRouter,
+    RoutingDecision,
+)
 from foreman.runtime import FactoryRuntime
 from foreman.version import __version__
 
 __all__ = [
+    "DecisionForemanModel", "DecisionResponsibilityRouter", "DecisionModelAdapter",
+    "JevDecisionAdapter", "OpenAIDecisionAdapter",
     "__version__",
     "FactoryAssessment",
     "FactoryConfig",

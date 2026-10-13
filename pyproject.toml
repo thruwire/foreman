@@ -5,13 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "foreman-core"
 version = "0.5.0"
-description = "An agent supervisor and software factory foreman powered by TypeSafe’s Jev model"
+description = "An agent supervisor and software factory foreman powered by decision models"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Foreman contributors" }]
-keywords = ["ai", "agents", "coding-agents", "supervision", "jev"]
+keywords = ["ai", "agents", "coding-agents", "supervision", "decision-models"]
 classifiers = [
   "Intended Audience :: Developers",
   "Operating System :: OS Independent",
@@ -32,7 +32,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+openai = ["openai>=2,<3"]
 dev = [
+  "openai>=2,<3",
   "pytest>=8.2,<10",
   "pytest-asyncio>=0.23,<2",
   "ruff>=0.6,<1",

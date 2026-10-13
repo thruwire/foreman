@@ -33,7 +33,7 @@ def build_steering_message(result: ForemanResult) -> str:
         )
 
     return (
-        "Foreman supervisory update based on a Jev assessment:\n"
+        "Foreman supervisory update based on a decision model assessment:\n"
         f"- worker stuck: {worker_stuck:.0%}\n"
         f"- meaningful progress: {meaningful_progress:.0%}\n"
         f"- work off track: {work_off_track:.0%}\n"

@@ -52,6 +52,14 @@ The architecture resembles a control system, but the state estimator is semantic
 physical. Evidence is partial, delayed, and lossy. The controller therefore needs hysteresis-like
 state—verification history, worker counts, retry counts—and conservative terminal conditions.
 
+## Provider-independent decisions
+
+The state estimator is a replaceable decision-model adapter. Jev was the first provider;
+OpenAI's native Decisions API now implements the same predicate contract. Each adapter translates
+structured evidence and named questions into its provider's request and returns probabilities.
+Evidence planning, routing thresholds, and Python policy remain shared. The choice of coding
+worker is independent of the choice of decision model. See [decision models](decision-models.md).
+
 ## Why concurrency matters
 
 If assessment only happens after a worker exits, the architecture is a serial judge:

@@ -193,3 +193,11 @@ Upstream contracts: [Pi extensions](https://github.com/earendil-works/pi/blob/ma
 The source inspected for implementation is
 [`ae92585`](https://github.com/earendil-works/pi/tree/ae92585d3b3e5f1e4b123d14a34314d826d8d9f5);
 type checks and runtime tests use the published 1.0.4 packages in the lockfile.
+
+## Decision-model provider
+
+These setup examples use Jev, the default decision model. OpenAI supervision uses the same
+hooks and responsibilities. Install `foreman-core[openai]` and set
+`FOREMAN_DECISION_PROVIDER=openai`, `FOREMAN_DECISION_MODEL=gpt-6-luna`, and
+`FOREMAN_OPENAI_API_KEY` in the protected central `.env`. See
+[decision-model configuration](../../docs/decision-models.md).

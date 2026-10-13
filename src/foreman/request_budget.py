@@ -1,9 +1,9 @@
-"""Conservative, dependency-free budgeting for Jev's two input limits.
+"""Conservative local evidence budgets shared by decision-model adapters.
 
-The API does not expose its tokenizer. Count ASCII-escaped JSON bytes rather
-than guessing tokens from characters. This deliberately overestimates normal
-text and Unicode for byte-based tokenizers. Defaults leave headroom below the
-published 32k pair / 64k request limits; this is not an exact token count.
+Count ASCII-escaped JSON bytes rather than guessing tokens from characters.
+Provider profiles account for their evidence/question envelope. Defaults retain
+conservative ceilings chosen for Jev; these are local limits, not token counts
+or a claim about every provider's context window.
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ class BudgetedRequest:
 
 
 @dataclass(frozen=True)
-class JevRequestBudget:
+class DecisionRequestBudget:
     pair_bytes: int = 30_000
     total_bytes: int = 60_000
     target_pair_bytes: int = 12_000
@@ -63,20 +63,23 @@ class JevRequestBudget:
 
     def __post_init__(self) -> None:
         if not 512 <= self.pair_bytes <= 30_000 or not 512 <= self.total_bytes <= 60_000:
-            raise ValueError("Jev byte budgets must be positive and below the model defaults")
+            raise ValueError("Decision byte budgets must be positive and below the defaults")
         if (
             not 512 <= self.target_pair_bytes <= 30_000
             or not 512 <= self.target_total_bytes <= 60_000
         ):
-            raise ValueError("Jev byte targets must be positive and below the model defaults")
+            raise ValueError("Decision byte targets must be positive and below the defaults")
+
+    def question_payloads(self, questions: Mapping[str, str]) -> dict[str, Any]:
+        return {
+            key: {"type": "predicate", "instructions": value}
+            for key, value in questions.items()
+        }
 
     def measure(
         self, state: Mapping[str, Any], questions: Mapping[str, str],
     ) -> dict[str, int]:
-        payloads = {
-            key: {"type": "noul", "instructions": value, "criteria": None}
-            for key, value in questions.items()
-        }
+        payloads = self.question_payloads(questions)
         longest = max(payloads.values(), key=json_bytes, default={})
         return {
             "state_bytes": json_bytes(state),
@@ -181,9 +184,20 @@ class JevRequestBudget:
         if self._fits(sizes):
             return BudgetedRequest(result, sizes, original)
         raise RequestBudgetError(
-            "Jev request budget exceeded: essential context and unchanged questions cannot fit "
+            "Decision request budget exceeded: "
+            "essential context and unchanged questions cannot fit "
             f"(state={sizes['state_bytes']} ASCII JSON bytes; "
             f"state + longest question={sizes['pair_bytes']}/{self.pair_bytes}; "
             f"whole request={sizes['total_bytes']}/{self.total_bytes}). "
             "Reduce the submitted work, tool arguments, instructions, or question definitions."
         )
+
+
+class JevRequestBudget(DecisionRequestBudget):
+    """Historical structured-state/Noul envelope measurement."""
+
+    def question_payloads(self, questions: Mapping[str, str]) -> dict[str, Any]:
+        return {
+            key: {"type": "noul", "instructions": value, "criteria": None}
+            for key, value in questions.items()
+        }

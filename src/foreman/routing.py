@@ -12,9 +12,11 @@ from typing import Annotated, Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-from foreman.jev_usage import JevUsageRecorder
-from foreman.request_budget import JevRequestBudget, RequestBudgetError
+from foreman.decision_models.base import DecisionModelAdapter
+from foreman.decision_models.jev import JevDecisionAdapter, parse_jev_values
+from foreman.request_budget import DecisionRequestBudget, RequestBudgetError
 from foreman.responsibilities import ResponsibilityRegistry, ResponsibilityRoute
+from foreman.usage import DecisionUsageRecorder
 
 _ROUTE_GROUP_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
@@ -330,27 +332,21 @@ def _parse_scores(
     *,
     prefix: str = "responsibility",
 ) -> dict[str, float]:
-    values: dict[str, Any] = {}
-    nouls = getattr(response, "nouls", None)
-    if nouls is not None:
-        for candidate_id in candidate_ids:
-            answer = nouls.get(_routing_key(candidate_id, prefix=prefix))
-            if answer is not None:
-                values[candidate_id] = getattr(answer, "noul", None)
-    elif isinstance(response, Mapping):
-        answers = response.get("answers", response)
-        if isinstance(answers, Mapping):
-            for candidate_id in candidate_ids:
-                answer = answers.get(_routing_key(candidate_id, prefix=prefix))
-                if isinstance(answer, Mapping):
-                    values[candidate_id] = answer.get("noul")
-                elif answer is not None:
-                    values[candidate_id] = answer
+    keys = [_routing_key(candidate_id, prefix=prefix) for candidate_id in candidate_ids]
+    raw_values = parse_jev_values(response, keys)
+    values = {
+        candidate_id: raw_values[key]
+        for candidate_id, key in zip(candidate_ids, keys, strict=True) if key in raw_values
+    }
 
+    return _normalize_scores(values, candidate_ids)
+
+
+def _normalize_scores(values: Mapping[str, Any], candidate_ids: list[str]) -> dict[str, float]:
     missing = set(candidate_ids) - set(values)
     if missing:
         raise ResponsibilityRoutingError(
-            f"Jev routing response omitted: {', '.join(sorted(missing))}"
+            f"Decision model routing response omitted: {', '.join(sorted(missing))}"
         )
 
     scores: dict[str, float] = {}
@@ -358,53 +354,37 @@ def _parse_scores(
         raw = values[candidate_id]
         if isinstance(raw, bool) or not isinstance(raw, (int, float)):
             raise ResponsibilityRoutingError(
-                f"Jev routing answer for {candidate_id!r} is not numeric"
+                f"Decision model routing answer for {candidate_id!r} is not numeric"
             )
         score = float(raw)
         if not isfinite(score):
             raise ResponsibilityRoutingError(
-                f"Jev routing answer for {candidate_id!r} is not finite"
+                f"Decision model routing answer for {candidate_id!r} is not finite"
             )
         scores[candidate_id] = min(1.0, max(0.0, score))
     return scores
 
 
-class JevResponsibilityRouter:
-    """Use one Jev call to activate zero or more non-global responsibilities."""
+class DecisionResponsibilityRouter:
+    """Route responsibilities and groups through a decision-model adapter."""
 
     def __init__(
-        self,
-        *,
-        client: Any | None = None,
-        timeout_seconds: float = 10.0,
-        model: str = "jev-latest",
-        budget: JevRequestBudget | None = None,
-        usage_recorder: JevUsageRecorder | None = None,
+        self, adapter: DecisionModelAdapter, *, timeout_seconds: float = 10.0,
+        budget: DecisionRequestBudget | None = None,
+        usage_recorder: DecisionUsageRecorder | None = None,
     ) -> None:
-        self._client = client
+        self.adapter = adapter
         self.timeout_seconds = timeout_seconds
-        self.model = model
-        self.budget = budget or JevRequestBudget()
-        self.usage_recorder = usage_recorder or JevUsageRecorder()
-        self._owns_client = client is None
+        self.budget = budget or adapter.budget
+        self.usage_recorder = usage_recorder or DecisionUsageRecorder()
 
-    def _make_client(self) -> Any:
-        try:
-            from typesafe_sdk import AsyncTypeSafeClient, RetryPolicy
-        except ImportError as error:
-            raise ResponsibilityRoutingError(
-                "typesafe-sdk is not installed; install the project dependencies"
-            ) from error
-        return AsyncTypeSafeClient(
-            model=self.model,
-            timeout=self.timeout_seconds,
-            retry=RetryPolicy(
-                max_retries=2,
-                http_statuses={429, 500, 502, 503, 504},
-                respect_retry_after=True,
-                timeout=self.timeout_seconds,
-            ),
-        )
+    @property
+    def model(self) -> str:
+        return self.adapter.model
+
+    @model.setter
+    def model(self, value: str) -> None:
+        self.adapter.model = value
 
     async def route(
         self,
@@ -467,25 +447,6 @@ class JevResponsibilityRouter:
         if not routes:
             return {}
         try:
-            from typesafe_sdk import Noul
-        except ImportError as error:
-            if self._client is None:
-                raise ResponsibilityRoutingError("typesafe-sdk is not installed") from error
-
-            class Noul:  # type: ignore[no-redef]
-                def __init__(self, *, instructions: str) -> None:
-                    self.instructions = instructions
-
-        questions = {
-            _routing_key(candidate_id, prefix=prefix): Noul(
-                instructions=route.instructions or ""
-            )
-            for candidate_id, route in routes.items()
-        }
-        client = self._client or self._make_client()
-        if self._client is None:
-            self._client = client
-        try:
             fitted = self.budget.fit(
                 {"work": work},
                 {
@@ -494,35 +455,53 @@ class JevResponsibilityRouter:
                 },
                 compact=False,
             )
-            response = await asyncio.wait_for(
-                client.system_one(
-                    state=fitted.state,
-                    questions=questions,
-                    model=self.model,
-                    timeout=self.timeout_seconds,
-                ),
+            questions = {
+                _routing_key(candidate_id, prefix=prefix): route.instructions or ""
+                for candidate_id, route in routes.items()
+            }
+            result = await asyncio.wait_for(
+                self.adapter.evaluate(fitted.state, questions),
                 timeout=self.timeout_seconds + 0.5,
             )
             self.usage_recorder.record(
-                response, fitted, purpose="routing", model=self.model,
+                result.response, fitted, purpose="routing", model=self.adapter.model,
+                provider=self.adapter.provider,
             )
-            scores = _parse_scores(response, list(routes), prefix=prefix)
+            values = {
+                candidate_id: result.values[key]
+                for candidate_id in routes
+                if (key := _routing_key(candidate_id, prefix=prefix)) in result.values
+            }
+            scores = _normalize_scores(values, list(routes))
         except TimeoutError as error:
-            raise ResponsibilityRoutingError("Jev responsibility routing timed out") from error
+            raise ResponsibilityRoutingError(
+                f"{self.adapter.provider} responsibility routing timed out"
+            ) from error
         except ResponsibilityRoutingError:
             raise
         except RequestBudgetError as error:
             raise ResponsibilityRoutingError(str(error)) from error
         except Exception as error:
             raise ResponsibilityRoutingError(
-                f"Jev responsibility routing failed: {type(error).__name__}: {error}"
+                f"{self.adapter.provider} responsibility routing failed: "
+                f"{type(error).__name__}: {error}"
             ) from error
 
         return scores
 
     async def close(self) -> None:
-        if self._owns_client and self._client is not None:
-            close = getattr(self._client, "aclose", None)
-            if close is not None:
-                await close()
-        self._client = None
+        await self.adapter.close()
+
+
+class JevResponsibilityRouter(DecisionResponsibilityRouter):
+    """Backward-compatible Jev constructor for the shared router."""
+
+    def __init__(
+        self, *, client: Any | None = None, timeout_seconds: float = 10.0,
+        model: str = "jev-latest", budget: DecisionRequestBudget | None = None,
+        usage_recorder: DecisionUsageRecorder | None = None,
+    ) -> None:
+        super().__init__(
+            JevDecisionAdapter(client=client, timeout_seconds=timeout_seconds, model=model),
+            timeout_seconds=timeout_seconds, budget=budget, usage_recorder=usage_recorder,
+        )

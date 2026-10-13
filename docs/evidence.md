@@ -1,9 +1,9 @@
 # Evidence providers
 
-Foreman's semantic checks consist of Jev instructions, a threshold, and an evidence selection.
-Evidence providers collect bounded, typed fragments such as worker output, a Git diff, parsed test
-results, or output from a trusted CLI. This keeps collection separate from judgment: providers
-report what happened, while each check's instructions decide what that evidence means.
+Foreman's semantic checks consist of decision model instructions, a threshold, and an evidence
+selection. Evidence providers collect bounded, typed fragments such as worker output, a Git diff,
+parsed test results, or output from a trusted CLI. This keeps collection separate from judgment:
+providers report what happened, while each check's instructions decide what that evidence means.
 
 ## Built-in providers and the default
 
@@ -19,7 +19,7 @@ Foreman currently models these built-in providers:
 | `tests` | Parsed test summaries from worker output |
 | `verification` | Independent verifier-worker results |
 | `events` | Recent bounded lifecycle events |
-| `history` | Previous Jev result, intervention, and factory errors |
+| `history` | Previous decision model result, intervention, and factory errors |
 
 When a check omits `evidence`, it receives all built-in providers above. There are no named or
 composable evidence sets. When a check supplies `evidence`, that list is its complete selection:
@@ -35,37 +35,39 @@ evidence = ["worker", "git.diff", "tests"]
 
 Job identity, routing bindings, extension identity, iteration, attempts, and elapsed factory time
 remain part of the check context. Built-in providers retain the original flat observation field
-names in the state sent to Jev. Consequently, a check that omits `evidence` receives the same state
-shape as before provider selection was introduced. An explicit list removes unselected fields;
-selected command results appear in `command_evidence`.
+names in the state sent to the decision model. Consequently, a check that omits `evidence` receives
+the same state shape as before provider selection was introduced. An explicit list removes
+unselected fields; selected command results appear in `command_evidence`.
 
-Checks with the same evidence selection are evaluated together in one Jev call. Checks with
-different selections are grouped into separate calls so each call receives only its selected
+Checks with the same evidence selection are evaluated together in one decision model call. Checks
+with different selections are grouped into separate calls so each call receives only its selected
 provider payloads.
 
-## Jev request budgets
+## Decision model request budgets
 
-Every assessment is checked against two aggregate budgets after selecting evidence: state plus
-the longest question, and state plus all questions. Routing requests use the same validation.
-Per-field collection limits alone cannot prevent a long hook session from exceeding Jev's
-[32k / 64k token limits](https://docs.typesafe.ai/models).
+Every assessment is checked against two aggregate budgets after selecting evidence: state plus the
+longest question, and state plus all questions. Routing requests use the same validation. Per-field
+collection limits alone cannot bound aggregate input. Foreman counts ASCII-escaped JSON bytes
+including question definitions and envelope overhead as a conservative local proxy. The Jev profile
+uses its structured-state envelope; the OpenAI profile counts JSON evidence serialized into the
+Decisions input string and named predicate questions.
 
-The SDK exposes no matching tokenizer. Foreman therefore counts ASCII-escaped JSON bytes,
-including question definitions and envelope overhead, as a conservative proxy. Defaults are
-30,000 bytes for the pair and 60,000 bytes for the request, leaving room below the published
-token limits. These are byte budgets, not exact token counts. They can be lowered with
-`FOREMAN_JEV_PAIR_BUDGET_BYTES` and `FOREMAN_JEV_REQUEST_BUDGET_BYTES`; values above the defaults
-are rejected.
+Defaults retain Jev-compatible limits: 30,000 bytes for a state/question pair and 60,000 bytes for a
+request. These are local byte ceilings, not exact token counts or a claim about OpenAI's context
+limit. Lower them with `FOREMAN_DECISION_PAIR_BUDGET_BYTES` and
+`FOREMAN_DECISION_REQUEST_BUDGET_BYTES`; values above the defaults are rejected. The historical
+`FOREMAN_JEV_*` settings remain aliases; contradictory old and new values fail configuration
+validation. See [decision models](decision-models.md).
 
 Foreman always removes exact duplicate worker output, even for small requests. Short repeated
 strings remain in place when references would add more overhead. Whitespace differences remain
 distinct. One canonical output stays in the request and other copies reference it.
 
-Assessments aim for a soft target of 12,000 bytes for the pair and 24,000 bytes for the request.
-Set `FOREMAN_JEV_PAIR_TARGET_BYTES` and `FOREMAN_JEV_REQUEST_TARGET_BYTES` to tune these targets.
-Targets are clamped to the hard limits. If essential inputs alone exceed either target, the
-request can use the hard limits and retain optional evidence within those limits. Routing
-preserves its entire work and question definitions and only uses hard validation.
+Assessments aim for a soft target of 12,000 bytes for the pair and 24,000 bytes for the request. Set
+`FOREMAN_DECISION_PAIR_TARGET_BYTES` and `FOREMAN_DECISION_REQUEST_TARGET_BYTES` to tune these
+targets. Targets are clamped to the hard limits. If essential inputs alone exceed either target, the
+request can use the hard limits and retain optional evidence within those limits. Routing preserves
+its entire work and question definitions and only uses hard validation.
 
 When selected evidence exceeds the effective target, Foreman drops oldest history first, then
 shortens optional strings while retaining their beginning and end. Optional
@@ -81,14 +83,14 @@ Foreman reports a local budget error before submitting any assessment group. Exi
 failure handling applies, including denial of `PreToolUse`. Routing preserves the entire work
 and every routing question, and likewise fails locally if they cannot fit.
 
-Successful API responses from both assessments and routing append metadata to
-`${FOREMAN_DATA_DIR:-~/.foreman}/jev-usage.jsonl` (or the hook's explicit `--data-dir`). Each
-record includes API-reported input/output tokens, model, purpose, and request bytes before and
-after reduction. Missing counts are `null`, not zero; byte counts are never presented as tokens.
-The log contains no task text, tool arguments, question instructions, evidence, or answers and
-is created with owner-only permissions. Usage-write failures are logged and do not change
-supervision. SDK retries without returned usage are not included in these counts. The append-only
-log can be rotated or removed without changing session state.
+Parsed decision responses from both assessments and routing append metadata to
+`${FOREMAN_DATA_DIR:-~/.foreman}/decision-usage.jsonl` (or the hook's explicit `--data-dir`). Each
+record includes API-reported input/output tokens, provider, model, purpose, and request bytes before
+and after reduction. Missing counts are `null`, not zero; byte counts are never presented as tokens.
+The log contains no task text, tool arguments, question instructions, evidence, or answers and is
+created with owner-only permissions. Usage-write failures are logged and do not change supervision.
+SDK retries and responses rejected by adapter validation are not included in these counts.
+The append-only log can be rotated or removed without changing session state.
 
 To reduce routine cost, choose providers that support the actual check. For a project-stewardship
 check that judges completed MCP reads, updates, and read-back evidence, a suitable starting point
@@ -149,9 +151,9 @@ The provider payload contains:
 - bounded stdout and stderr tails.
 
 Foreman does not assign generic pass/fail semantics to the exit code and does not inject an
-automatic directive. The paired check's Jev instructions interpret the complete provider payload;
-its owning responsibility then uses the normal thresholds and policy to continue, verify, finish,
-or escalate.
+automatic directive. The paired check's decision model instructions interpret the complete provider
+payload; its owning responsibility then uses the normal thresholds and policy to continue, verify,
+finish, or escalate.
 
 ## Safety boundary
 

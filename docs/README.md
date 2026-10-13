@@ -3,6 +3,7 @@
 These notes explain Foreman's design and implementation:
 
 - [Theory: semantic supervision](theory.md) describes the two-loop architecture.
+- [Decision models and adapters](decision-models.md) defines the shared provider contract.
 - [Why Jev fits](why-jev.md) maps Jev's actual primitives to Foreman's needs.
 - [What Foreman is proving](what-foreman-proves.md) states the hypotheses and evidence boundaries.
 - [Runtime and event flow](runtime.md) is the implementation guide.

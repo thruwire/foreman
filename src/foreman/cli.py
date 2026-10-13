@@ -16,6 +16,7 @@ from rich.table import Table
 
 from foreman import __version__
 from foreman.config import FactoryConfig
+from foreman.decision_models import OpenAIDecisionAdapter, OpenAIRequestBudget
 from foreman.deepagents_setup import install_deepagents_hooks
 from foreman.extensions import (
     ExtensionError,
@@ -24,7 +25,12 @@ from foreman.extensions import (
     ExtensionSnapshot,
     load_foreman_file_config,
 )
-from foreman.foreman import FakeForemanModel, JevForemanModel
+from foreman.foreman import (
+    DecisionForemanModel,
+    FakeForemanModel,
+    ForemanModel,
+    JevForemanModel,
+)
 from foreman.hook_adapters import hook_adapter
 from foreman.hooks import (
     AttachedSessionStore,
@@ -33,7 +39,6 @@ from foreman.hooks import (
     HookEvent,
     run_hook,
 )
-from foreman.jev_usage import JevUsageRecorder
 from foreman.models import EventType, FactoryStatus, WorkerType
 from foreman.paths import foreman_config_path, foreman_data_dir
 from foreman.persistence import PersistenceError, RunStore
@@ -44,13 +49,16 @@ from foreman.responsibilities import (
     configured_registry,
 )
 from foreman.routing import (
+    DecisionResponsibilityRouter,
     GlobalResponsibilityRouter,
     JevResponsibilityRouter,
+    ResponsibilityRouter,
     ResponsibilityRoutingError,
     prune_disabled_route_groups,
 )
 from foreman.runtime import FactoryRuntime
 from foreman.terminal import TerminalRenderer, duration_label, elapsed_label
+from foreman.usage import DecisionUsageRecorder
 from foreman.workers import FakeWorker
 
 app = typer.Typer(
@@ -73,6 +81,34 @@ def main(
     if version:
         typer.echo(f"foreman-core {__version__}")
         raise typer.Exit()
+
+
+def _decision_components(
+    config: FactoryConfig, data_dir: Path,
+) -> tuple[ForemanModel, ResponsibilityRouter]:
+    budget_type = (
+        OpenAIRequestBudget if config.decision_provider == "openai" else JevRequestBudget
+    )
+    budget = budget_type(
+        config.decision_pair_budget_bytes, config.decision_request_budget_bytes,
+        target_pair_bytes=config.decision_pair_target_bytes,
+        target_total_bytes=config.decision_request_target_bytes,
+    )
+    usage = DecisionUsageRecorder(data_dir / "decision-usage.jsonl")
+    options = {"timeout_seconds": config.decision_timeout_seconds,
+               "budget": budget, "usage_recorder": usage}
+    if config.decision_provider == "jev":
+        if config.decision_model is not None:
+            options["model"] = config.decision_model
+        return JevForemanModel(**options), JevResponsibilityRouter(**options)
+    # Separate owned clients avoid ambiguous shutdown ownership between model and router.
+    def adapter() -> OpenAIDecisionAdapter:
+        return OpenAIDecisionAdapter(
+            timeout_seconds=config.decision_timeout_seconds,
+            model=config.decision_model or "gpt-6-luna",
+        )
+    return (DecisionForemanModel(adapter(), **options),
+            DecisionResponsibilityRouter(adapter(), **options))
 
 
 def _discard_attached_session(event: HookEvent, data_dir: Path) -> None:
@@ -298,29 +334,16 @@ def hook(
             asyncio.run(extensions.close())
             sys.stdout.write("{}\n")
             return
-        budget = JevRequestBudget(
-            config.jev_pair_budget_bytes, config.jev_request_budget_bytes,
-            target_pair_bytes=config.jev_pair_target_bytes,
-            target_total_bytes=config.jev_request_target_bytes,
-        )
-        usage_recorder = JevUsageRecorder(central_data_dir / "jev-usage.jsonl")
+        model, router = _decision_components(config, central_data_dir)
         runtime = AttachedWorkerRuntime(
-            model=JevForemanModel(
-                timeout_seconds=config.jev_timeout_seconds,
-                budget=budget,
-                usage_recorder=usage_recorder,
-            ),
-            router=JevResponsibilityRouter(
-                timeout_seconds=config.jev_timeout_seconds,
-                budget=budget,
-                usage_recorder=usage_recorder,
-            ),
+            model=model,
+            router=router,
             responsibilities=responsibilities,
             config=config,
             store=AttachedSessionStore(
                 central_data_dir,
                 ttl_seconds=config.hook_session_ttl_seconds,
-                lock_timeout_seconds=max(30.0, config.jev_timeout_seconds * 3),
+                lock_timeout_seconds=max(30.0, config.decision_timeout_seconds * 3),
             ),
             routing_groups=prune_disabled_route_groups(
                 activated.routing_groups,
@@ -385,7 +408,7 @@ def run(
         ),
     ] = None,
 ) -> None:
-    """Launch a coding worker supervised by TypeSafe AI Jev."""
+    """Launch a coding worker supervised by a decision model."""
 
     # Capture the process-level factory setting before reading the target repository's
     # local environment. A managed repository cannot select Foreman's responsibilities.
@@ -399,12 +422,15 @@ def run(
 
     load_dotenv(repo / ".env", override=False)
     load_dotenv(override=False)
-    if not os.getenv("TYPESAFE_API_KEY"):
-        console.print(
-            "Missing TYPESAFE_API_KEY. Copy .env.example to .env and add your TypeSafe API key."
-        )
-        raise typer.Exit(code=2)
+    load_dotenv(central_data_dir / ".env", override=False)
     config = FactoryConfig.from_environment()
+    key_name = "TYPESAFE_API_KEY" if config.decision_provider == "jev" else "FOREMAN_OPENAI_API_KEY"
+    key = os.getenv(key_name)
+    if config.decision_provider == "openai":
+        key = key or os.getenv("OPENAI_API_KEY")
+    if not key:
+        console.print(f"Missing {key_name}. Configure credentials for {config.decision_provider}.")
+        raise typer.Exit(code=2)
     extensions: ExtensionManager | None = None
     try:
         extensions = ExtensionManager(
@@ -424,28 +450,15 @@ def run(
                 item.implementation.id: item.definition for item in registrations
             },
         )
-        budget = JevRequestBudget(
-            config.jev_pair_budget_bytes, config.jev_request_budget_bytes,
-            target_pair_bytes=config.jev_pair_target_bytes,
-            target_total_bytes=config.jev_request_target_bytes,
-        )
-        usage_recorder = JevUsageRecorder(extensions.data_dir / "jev-usage.jsonl")
+        model, router = _decision_components(config, extensions.data_dir)
         runtime = FactoryRuntime(
             repository=repo,
             job=job,
-            model=JevForemanModel(
-                timeout_seconds=config.jev_timeout_seconds,
-                budget=budget,
-                usage_recorder=usage_recorder,
-            ),
+            model=model,
             config=config,
             event_sink=TerminalRenderer(console),
             responsibilities=responsibilities,
-            router=JevResponsibilityRouter(
-                timeout_seconds=config.jev_timeout_seconds,
-                budget=budget,
-                usage_recorder=usage_recorder,
-            ),
+            router=router,
             routing_groups=activated.routing_groups,
             active_extension_ids=activated.extension_ids,
             extension_snapshot_revisions=dict(activated.snapshot_revisions),

@@ -50,13 +50,15 @@ class CommandEvidenceConfig(BaseModel):
 class FactoryConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    decision_provider: Literal["jev", "openai"] = "jev"
+    decision_model: str | None = Field(default=None, min_length=1)
     assessment_min_interval_seconds: float = Field(default=5.0, ge=0.0)
     periodic_assessment_seconds: float = Field(default=30.0, gt=0.0)
-    jev_timeout_seconds: float = Field(default=10.0, gt=0.0)
-    jev_pair_budget_bytes: int = Field(default=30_000, ge=512, le=30_000)
-    jev_request_budget_bytes: int = Field(default=60_000, ge=512, le=60_000)
-    jev_pair_target_bytes: int = Field(default=12_000, ge=512, le=30_000)
-    jev_request_target_bytes: int = Field(default=24_000, ge=512, le=60_000)
+    decision_timeout_seconds: float = Field(default=10.0, gt=0.0)
+    decision_pair_budget_bytes: int = Field(default=30_000, ge=512, le=30_000)
+    decision_request_budget_bytes: int = Field(default=60_000, ge=512, le=60_000)
+    decision_pair_target_bytes: int = Field(default=12_000, ge=512, le=30_000)
+    decision_request_target_bytes: int = Field(default=24_000, ge=512, le=60_000)
     worker_timeout_seconds: float = Field(default=3_600.0, gt=0.0)
     overall_timeout_seconds: float = Field(default=7_200.0, gt=0.0)
     graceful_termination_seconds: float = Field(default=5.0, ge=0.0)
@@ -90,6 +92,45 @@ class FactoryConfig(BaseModel):
     hook_session_ttl_seconds: float = Field(default=604_800.0, gt=0.0)
     command_evidence: tuple[CommandEvidenceConfig, ...] = ()
 
+    @model_validator(mode="before")
+    @classmethod
+    def legacy_decision_settings(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        values = dict(value)
+        for suffix in (
+            "timeout_seconds", "pair_budget_bytes", "request_budget_bytes",
+            "pair_target_bytes", "request_target_bytes",
+        ):
+            old, new = f"jev_{suffix}", f"decision_{suffix}"
+            if old in values:
+                legacy = values.pop(old)
+                if new in values and values[new] != legacy:
+                    raise ValueError(f"conflicting {old} and {new}")
+                values.setdefault(new, legacy)
+        return values
+
+    # Historical attribute names for existing Python integrations.
+    @property
+    def jev_timeout_seconds(self) -> float:
+        return self.decision_timeout_seconds
+
+    @property
+    def jev_pair_budget_bytes(self) -> int:
+        return self.decision_pair_budget_bytes
+
+    @property
+    def jev_request_budget_bytes(self) -> int:
+        return self.decision_request_budget_bytes
+
+    @property
+    def jev_pair_target_bytes(self) -> int:
+        return self.decision_pair_target_bytes
+
+    @property
+    def jev_request_target_bytes(self) -> int:
+        return self.decision_request_target_bytes
+
     @model_validator(mode="after")
     def unique_command_evidence_ids(self) -> FactoryConfig:
         ids = [provider.id for provider in self.command_evidence]
@@ -100,6 +141,13 @@ class FactoryConfig(BaseModel):
     @classmethod
     def from_environment(cls) -> FactoryConfig:
         mapping: dict[str, tuple[str, Callable[[str], object]]] = {
+            "FOREMAN_DECISION_PROVIDER": ("decision_provider", str),
+            "FOREMAN_DECISION_MODEL": ("decision_model", str),
+            "FOREMAN_DECISION_TIMEOUT_SECONDS": ("decision_timeout_seconds", float),
+            "FOREMAN_DECISION_PAIR_BUDGET_BYTES": ("decision_pair_budget_bytes", int),
+            "FOREMAN_DECISION_REQUEST_BUDGET_BYTES": ("decision_request_budget_bytes", int),
+            "FOREMAN_DECISION_PAIR_TARGET_BYTES": ("decision_pair_target_bytes", int),
+            "FOREMAN_DECISION_REQUEST_TARGET_BYTES": ("decision_request_target_bytes", int),
             "FOREMAN_ASSESSMENT_MIN_INTERVAL_SECONDS": (
                 "assessment_min_interval_seconds",
                 float,

@@ -66,7 +66,7 @@ async def test_assessment_survives_unwritable_usage_ledger(tmp_path, caplog) -> 
     model = JevForemanModel(client=Client(result=response), usage_recorder=JevUsageRecorder(path))
     result = await model.assess(observation(), checks)
     assert result.probability("example", "events") == 0.9
-    assert caplog.text.count("Could not append Jev usage record") == 2
+    assert caplog.text.count("Could not append decision model usage record") == 2
 
 
 @pytest.mark.asyncio

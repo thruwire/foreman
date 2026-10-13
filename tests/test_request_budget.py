@@ -177,7 +177,7 @@ async def test_assessment_budgets_selected_evidence_and_preserves_questions(capl
     assert call["questions"]["example__progress"].instructions == checks[0].instructions
     assert call["state"]["current_operation"] == value.current_operation
     assert "git_diff" not in call["state"]
-    assert "Compacted Jev evidence" in caplog.text
+    assert "Compacted decision model evidence" in caplog.text
     assert "large tool result" not in caplog.text
 
 
