@@ -334,3 +334,69 @@ async def test_failed_group_cancels_and_settles_sibling_calls():
     with pytest.raises(ForemanModelError, match="refused"):
         await model.assess(observation(), checks)
     assert cancelled.is_set()
+
+
+@pytest.mark.parametrize("key_name", ["FOREMAN_OPENAI_API_KEY", "OPENAI_API_KEY"])
+def test_managed_central_decision_settings_cannot_change_worker_models(
+    tmp_path, monkeypatch, key_name,
+):
+    import os
+
+    from typer.testing import CliRunner
+
+    from foreman.cli import app
+    from foreman.models import FactoryStatus
+
+    # Isolate environment mutations performed by dotenv loading.
+    monkeypatch.setattr(os, "environ", {})
+    monkeypatch.setattr("foreman.cli.load_dotenv", lambda *args, **kwargs: None)
+    central = tmp_path / "central"
+    central.mkdir()
+    (central / ".env").write_text(
+        'FOREMAN_DECISION_PROVIDER=openai\n'
+        'FOREMAN_DECISION_MODEL=decision-only-model\n'
+        f'{key_name}=test-supervisor-key\n'
+        'OPENAI_BASE_URL=https://decision.example.invalid/v1\n'
+        'FOREMAN_WORKER_BACKEND=deepagents\n'
+        'FOREMAN_DEEPAGENTS_MODEL=unwanted-worker-model\n'
+        'FOREMAN_HERMES_MODEL=unwanted-worker-model\n'
+    )
+    calls = []
+    def run(runtime):
+        calls.append(runtime)
+        return FactoryStatus.FINISHED
+    monkeypatch.setattr("foreman.cli._run_async", run)
+    result = CliRunner().invoke(app, [
+        "run", "--repo", str(tmp_path), "--job", "Implement the feature",
+        "--data-dir", str(central),
+    ])
+    assert result.exit_code == 0, result.output
+    runtime = calls[0]
+    assert runtime.model.adapter.model == runtime.router.adapter.model == "decision-only-model"
+    assert runtime.config.worker_backend == "codex"
+    assert runtime.config.deepagents_model is None
+    assert runtime.config.hermes_model is None
+    assert os.environ["FOREMAN_OPENAI_API_KEY"] == "test-supervisor-key"
+    assert os.environ["FOREMAN_OPENAI_BASE_URL"] == "https://decision.example.invalid/v1"
+    assert "OPENAI_API_KEY" not in worker_environment()
+    assert "OPENAI_BASE_URL" not in worker_environment()
+    client = runtime.model.adapter._make_client()
+    assert str(client.base_url) == "https://decision.example.invalid/v1/"
+
+
+def test_central_decision_settings_preserve_existing_worker_credentials(tmp_path, monkeypatch):
+    import os
+
+    from foreman.cli import _load_decision_dotenv
+
+    monkeypatch.setattr(os, "environ", {"OPENAI_API_KEY": "worker-key",
+                                      "OPENAI_BASE_URL": "https://worker.example.invalid/v1"})
+    path = tmp_path / ".env"
+    path.write_text('FOREMAN_OPENAI_API_KEY=supervisor-key\n'
+                    'OPENAI_API_KEY=central-shared-key\n'
+                    'OPENAI_BASE_URL=https://central.example.invalid/v1\n')
+    _load_decision_dotenv(path)
+    assert os.environ["OPENAI_API_KEY"] == "worker-key"
+    assert os.environ["OPENAI_BASE_URL"] == "https://worker.example.invalid/v1"
+    assert os.environ["FOREMAN_OPENAI_API_KEY"] == "supervisor-key"
+    assert worker_environment()["OPENAI_API_KEY"] == "worker-key"

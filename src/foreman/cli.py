@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 from rich.console import Console
 from rich.table import Table
 
@@ -81,6 +81,23 @@ def main(
     if version:
         typer.echo(f"foreman-core {__version__}")
         raise typer.Exit()
+
+
+def _load_decision_dotenv(path: Path) -> None:
+    """Load central supervisor settings without changing a managed worker's settings."""
+    values = dotenv_values(path)
+    for name, value in values.items():
+        if value is not None and name.startswith((
+            "FOREMAN_DECISION_", "FOREMAN_JEV_", "FOREMAN_OPENAI_", "TYPESAFE_",
+        )):
+            os.environ.setdefault(name, value)
+    # Central SDK settings belong to the supervisor. Do not export shared names
+    # into a launched worker's environment; existing process SDK settings still work.
+    for suffix in ("API_KEY", "BASE_URL", "ORG_ID", "PROJECT_ID"):
+        shared, dedicated = f"OPENAI_{suffix}", f"FOREMAN_OPENAI_{suffix}"
+        value = values.get(shared)
+        if value is not None and shared not in os.environ:
+            os.environ.setdefault(dedicated, value)
 
 
 def _decision_components(
@@ -422,7 +439,7 @@ def run(
 
     load_dotenv(repo / ".env", override=False)
     load_dotenv(override=False)
-    load_dotenv(central_data_dir / ".env", override=False)
+    _load_decision_dotenv(central_data_dir / ".env")
     config = FactoryConfig.from_environment()
     key_name = "TYPESAFE_API_KEY" if config.decision_provider == "jev" else "FOREMAN_OPENAI_API_KEY"
     key = os.getenv(key_name)

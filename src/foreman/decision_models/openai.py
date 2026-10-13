@@ -88,6 +88,9 @@ class OpenAIDecisionAdapter:
                 from error
         return AsyncOpenAI(
             api_key=os.getenv("FOREMAN_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY"),
+            base_url=os.getenv("FOREMAN_OPENAI_BASE_URL") or os.getenv("OPENAI_BASE_URL"),
+            organization=os.getenv("FOREMAN_OPENAI_ORG_ID") or os.getenv("OPENAI_ORG_ID"),
+            project=os.getenv("FOREMAN_OPENAI_PROJECT_ID") or os.getenv("OPENAI_PROJECT_ID"),
             timeout=self.timeout_seconds, max_retries=2,
         )
 

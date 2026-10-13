@@ -70,8 +70,11 @@ worker's generative model is configured separately.
 ## Configuration
 
 Save provider settings in `${FOREMAN_DATA_DIR:-~/.foreman}/.env` for both managed runs and attached
-hooks. Existing process variables take precedence. Managed runs also retain their existing local
-`.env` loading. Hooks must receive the initial submitted work in a fresh assistant session.
+hooks. Existing process variables take precedence. Managed runs retain their existing local `.env`
+loading. Their new central `.env` loading is limited to decision settings and provider credentials;
+it cannot select a worker backend or worker model. Central `OPENAI_API_KEY`, `OPENAI_BASE_URL`,
+`OPENAI_ORG_ID`, and `OPENAI_PROJECT_ID` values are scoped to matching `FOREMAN_OPENAI_*` settings
+rather than exported to workers. Hooks must receive the initial submitted work in a fresh session.
 
 ```dotenv
 FOREMAN_DECISION_PROVIDER=openai
@@ -82,8 +85,9 @@ FOREMAN_DECISION_TIMEOUT_SECONDS=10
 
 Launched workers do not inherit `TYPESAFE_*` or `FOREMAN_OPENAI_*` variables. A worker's own
 `OPENAI_API_KEY` and other native provider settings remain available. Use the dedicated Foreman key
-to keep supervisor credentials separate from worker credentials. The OpenAI SDK honors its normal
-`OPENAI_BASE_URL`, organization, and project environment settings.
+to keep supervisor credentials separate from worker credentials. The adapter accepts
+`FOREMAN_OPENAI_BASE_URL`, `FOREMAN_OPENAI_ORG_ID`, and `FOREMAN_OPENAI_PROJECT_ID`, falling back
+to the SDK's normal process environment settings.
 
 | Setting | Default |
 | --- | ---: |
