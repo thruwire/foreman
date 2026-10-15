@@ -15,7 +15,7 @@ foreman hook --client <adapter>
           ├── normalize to a Foreman hook event
           ├── packaged responsibility TOMLs
           ├── configured extensions from local snapshots
-          ├── Jev routing and checks
+          ├── decision model routing and checks
           ├── local Git and AGENTS.md evidence
           └── global attached-session state
           │
@@ -68,16 +68,16 @@ See the bridge guide for setup, version support, and parallel-tool limitations.
 ## Event flow
 
 - `SessionStart` creates or refreshes the local session record.
-- `UserPromptSubmit` treats the prompt as the current unit of work. Jev evaluates every
+- `UserPromptSubmit` treats the prompt as the current unit of work. The decision model evaluates every
   conditional responsibility from the packaged TOMLs together, while global responsibilities are
   always included. Several responsibilities can match.
 - `PreToolUse` records the proposed operation, builds current repository evidence, and evaluates
-  every active responsibility's checks in one Jev request. A stop or escalation directive denies
+  every active responsibility's checks in one decision model request. A stop or escalation directive denies
   the tool call; steering becomes additional model context.
 - `PostToolUse` records the tool arguments and result, then performs the same assessment. Steering
   becomes additional context, while stop or escalation output interrupts normal processing.
 - `Stop` temporarily marks the attached worker complete, runs command evidence providers selected
-  by active checks, then lets the resulting Jev assessments and responsibilities decide whether the
+  by active checks, then lets the resulting decision model assessments and responsibilities decide whether the
   turn may finish. If work remains, Foreman requests one automatic continuation.
   `stop_hook_active` prevents an infinite continuation loop.
 - `SessionEnd` deletes the attached-session record.
@@ -99,10 +99,11 @@ are atomically replaced with owner-only permissions where the operating system s
 per-session lock serializes concurrent hook processes. Stored event, result, intervention, error,
 diff, and output history remains bounded by `FactoryConfig` limits.
 
-Before each Jev request, Foreman also applies an aggregate [request budget](evidence.md#jev-request-budgets).
-An existing session with oversized retained history can therefore recover without deleting its
-record. The current tool operation is supplied separately from shortened historical summaries,
-so compaction cannot conceal the arguments being assessed.
+Before each decision model request, Foreman also applies an aggregate [request
+budget](evidence.md#decision-model-request-budgets). An existing session with oversized retained
+history can therefore recover without deleting its record. The current tool operation is supplied
+separately from shortened historical summaries, so compaction cannot conceal the arguments being
+assessed.
 
 Sessions expire after seven days of inactivity by default. Set
 `FOREMAN_HOOK_SESSION_TTL_SECONDS` to change that lifetime, or pass `--data-dir` to isolate the

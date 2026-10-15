@@ -1,12 +1,12 @@
 # Responsibility configuration and routing
 
-Foreman routes each incoming job before starting the first worker. Routing is additive: every
-global responsibility is active, and every conditional responsibility whose Jev score reaches its
-threshold is added. Several responsibilities can match the same job.
+Foreman routes each incoming job before starting the first worker. Routing is additive: every global
+responsibility is active, and every conditional responsibility whose decision model score reaches
+its threshold is added. Several responsibilities can match the same job.
 
-Responsibility configuration belongs to the centralized Foreman installation, not to a managed
-Git repository. There is no routes file and no target-repository discovery. Each responsibility
-owns its routing semantics, recurring Jev checks, and settings in a file named for its
+Responsibility configuration belongs to the centralized Foreman installation, not to a managed Git
+repository. There is no routes file and no target-repository discovery. Each responsibility owns its
+routing semantics, recurring decision model checks, and settings in a file named for its
 implementation. Its Python class owns directive logic and other executable behavior. Local
 definitions with `kind = "declarative"` use Foreman's generic criterion-checking implementation;
 they do not require a custom Python package.
@@ -61,9 +61,9 @@ min_threshold = 0.75
 
 - `enabled` includes or excludes the responsibility from routing.
 - `always = true` makes it global. `always = false` requires `routing_instructions`.
-- `routing_instructions` tells Jev when the responsibility applies.
+- `routing_instructions` tells the decision model when the responsibility applies.
 - `routing_threshold` is that responsibility's activation threshold.
-- `[checks.<id>]` defines each recurring Jev check and its instructions. The implementation class
+- `[checks.<id>]` defines each recurring decision model check and its instructions. The implementation class
   declares the check IDs its directive logic requires, and startup fails when any are missing.
 - `min_threshold` sits beside the check it qualifies. Directive code reads it from the bound check
   instead of introducing responsibility-specific threshold setting names.
@@ -82,10 +82,10 @@ For a real `foreman run`:
 
 1. Foreman loads packaged definitions and applies optional central overrides.
 2. Global responsibilities become active immediately.
-3. Jev evaluates every conditional candidate in one `system_one` request against the incoming job.
+3. The decision model evaluates every conditional candidate in one adapter request against the incoming job.
 4. Foreman activates every candidate at or above its own threshold.
 5. Candidate IDs, active IDs, routing scores, and `FOREMAN_ROUTED` are persisted with the run.
-6. The selected TOML definitions provide Jev checks; their Python classes propose directives.
+6. The selected TOML definitions provide decision model checks; their Python classes propose directives.
 7. Only then does Foreman start the first worker.
 
 Malformed configuration or routing output fails before a worker starts. Managed runs route their

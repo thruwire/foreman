@@ -63,7 +63,7 @@ class FactoryObservation(BaseModel):
         return value
 
     def state_for(self, providers: tuple[str, ...]) -> dict[str, Any]:
-        """Build the Jev state envelope for one check's selected providers."""
+        """Build the decision model state envelope for one check's selected providers."""
 
         values = self.model_dump(mode="json")
         state = {

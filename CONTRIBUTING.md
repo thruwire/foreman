@@ -22,7 +22,7 @@ python -m pip install --upgrade pip
 python -m pip install -e '.[dev]'
 ```
 
-The test suite is offline and does not need a TypeSafe API key, Codex login, or network access.
+The test suite is offline and does not need a provider API key, Codex login, or network access.
 
 ```bash
 python -m pytest
@@ -36,7 +36,8 @@ python -m pytest tests/test_runtime.py
 ```
 
 See [the runtime guide](docs/runtime.md) for the event flow and [the theory notes](docs/theory.md)
-for the architecture behind it.
+for the architecture behind it. Decision-model adapters follow the contract in
+[decision models](docs/decision-models.md).
 
 ## Pull requests
 

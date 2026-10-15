@@ -1,13 +1,13 @@
 # Live steering
 
-Foreman can send Jev-informed guidance into an active Codex turn before resorting to termination.
+Foreman can send decision model guidance into an active Codex turn before resorting to termination.
 The feature uses Codex App Server because the non-interactive `codex exec` transport has no channel
 for additional input during a turn.
 
 ## Decision flow
 
 1. Foreman builds the same bounded factory observation used for every assessment.
-2. Jev compares the live evidence with any repository-root `AGENTS.override.md` or `AGENTS.md`
+2. The decision model compares the live evidence with any repository-root `AGENTS.override.md` or `AGENTS.md`
    instructions and scores `agents_md_drift`, `worker_stuck`, `work_off_track`,
    `meaningful_progress`, and the other dimensions.
 3. The deterministic policy checks safety limits and the worker's steering history.
@@ -18,11 +18,11 @@ for additional input during a turn.
 6. The worker receives a grace period. If the warning remains high afterward, policy stops it and
    uses the existing retry path.
 
-Jev does not directly write the steering prompt or control the process. It supplies probabilities;
-ordinary Python selects an allowed action and deterministically formats the guidance.
+The decision model does not directly write the steering prompt or control the process. It supplies
+probabilities; ordinary Python selects an allowed action and deterministically formats the guidance.
 
-Repository instructions are read from the target repository for each observation, passed only in
-the transient Jev request, and are not copied into source code or persisted in factory state.
+Repository instructions are read from the target repository for each observation, passed only in the
+transient decision model request, and are not copied into source code or persisted in factory state.
 
 ## State and observability
 

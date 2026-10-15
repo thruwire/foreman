@@ -29,7 +29,7 @@ class ResponsibilityConfigError(ValueError):
 
 
 class CheckFileConfig(BaseModel):
-    """The Jev-facing definition of one recurring responsibility check."""
+    """The decision model definition of one recurring responsibility check."""
 
     model_config = ConfigDict(extra="forbid")
 

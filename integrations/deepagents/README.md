@@ -216,7 +216,7 @@ See the [native hook contract](https://github.com/langchain-ai/deepagents/blob/m
 - During a task in a fresh interactive session, look for a `client: "deepagents"`
   record under `${FOREMAN_DATA_DIR:-~/.foreman}/sessions/`. Session-end removes it.
   An excluded repository or disabled responsibility registry produces no session state.
-  `jev-usage.jsonl` in the same central data directory records real supervision requests.
+  `decision-usage.jsonl` in the same central data directory records real supervision requests.
 - A missing executable needs PATH repair or `FOREMAN_DEEPAGENTS_EXECUTABLE`; provider
   errors need worker credentials/model configuration. Missing supervisor credentials
   need the protected central `.env` or the launching process environment.
@@ -227,3 +227,11 @@ See the [native hook contract](https://github.com/langchain-ai/deepagents/blob/m
 - Existing project/user hook decisions may take precedence over Foreman's responses.
   Native matching handlers all execute; avoid duplicate Foreman registration in multiple
   scopes. Remove only Foreman's handler entries to uninstall, preserving other hooks.
+
+## Decision-model provider
+
+These setup examples use Jev, the default decision model. OpenAI supervision uses the same
+hooks and responsibilities. Install `foreman-core[openai]` and set
+`FOREMAN_DECISION_PROVIDER=openai`, `FOREMAN_DECISION_MODEL=gpt-6-luna`, and
+`FOREMAN_OPENAI_API_KEY` in the protected central `.env`. See
+[decision-model configuration](../../docs/decision-models.md).

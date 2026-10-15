@@ -11,19 +11,20 @@ software or superiority over another agent system.
    failures, prior decisions, and elapsed time are compacted before assessment.
 3. **Probabilistic judgments can safely drive a small action vocabulary.** A deterministic policy
    gates model scores with thresholds, lifecycle history, and resource limits.
-4. **A supervisor can intervene before worker completion.** Jev-informed guidance can enter an
+4. **A supervisor can intervene before worker completion.** Decision model guidance can enter an
    active Codex turn; repeated stuckness still reaches stop and retry paths.
 5. **Independent verification can be a policy outcome rather than a hard-coded workflow step.** It
    starts only when the semantic evidence crosses the verification boundary and cannot loop.
 6. **The system can be inspected.** State and an append-only event timeline reconstruct what the
    supervisor saw and did.
 
-The deterministic simulation proves these software properties without depending on Jev or Codex.
-A credentialed end-to-end run is required to demonstrate them with the external systems.
+The deterministic simulation proves these software properties without depending on an API provider
+or coding agent. A credentialed end-to-end run is required to demonstrate them with the external
+systems.
 
 ## The hypotheses it enables people to test
 
-- Can Jev identify meaningful progress, stuckness, and off-track work early enough to help?
+- Can decision models identify meaningful progress, stuckness, and off-track work early enough to help?
 - Are its scores calibrated on real software jobs?
 - Which observation fields carry useful signal?
 - What assessment frequency balances responsiveness, cost, and noise?
@@ -35,7 +36,7 @@ changes can be replayed, and false positive/negative interventions can be counte
 
 ## Claims this repository does not establish
 
-- that Jev judgments are accurate for arbitrary repositories;
+- that decision model judgments are accurate for arbitrary repositories;
 - that Foreman improves success rate, latency, cost, or safety;
 - that `FINISH` means the implementation is correct;
 - that local Codex execution is isolated or safe for untrusted code;
