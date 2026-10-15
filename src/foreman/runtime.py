@@ -192,10 +192,14 @@ class FactoryRuntime:
             )
         if self.config.codex_backend == "app-server":
             return CodexAppServerWorker(
+                executable=self.config.codex_executable,
+                model=self.config.codex_model,
                 output_limit=self.config.output_limit,
                 graceful_termination_seconds=self.config.graceful_termination_seconds,
             )
         return CodexWorker(
+            executable=self.config.codex_executable,
+            model=self.config.codex_model,
             output_limit=self.config.output_limit,
             graceful_termination_seconds=self.config.graceful_termination_seconds,
         )
@@ -385,6 +389,16 @@ class FactoryRuntime:
     async def _assess(self) -> Intervention | None:
         self.state.iteration += 1
         self.state.touch()
+        configuration_error = self.policy.configuration_error(self.state)
+        if configuration_error is not None:
+            self.state.latest_intervention = configuration_error
+            self.state.intervention_history.append(configuration_error)
+            self.store.save_state(self.state)
+            await self.emit(
+                EventType.FOREMAN_INTERVENED,
+                configuration_error.model_dump(mode="json"), notify_foreman=False,
+            )
+            return configuration_error
         observation = await self.observer.build(self.state)
         await self.emit(
             EventType.FOREMAN_OBSERVED,

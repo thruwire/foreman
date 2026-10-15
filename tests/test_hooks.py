@@ -750,3 +750,17 @@ async def test_pi_assessment_failure_denies_tool(tmp_path, client):
     output = adapter.render(event, await supervisor.handle(event))
     assert output['action'] == 'block'
     assert 'Jev unavailable' in output['reason']
+
+
+def test_factory_owned_worker_hooks_do_not_start_duplicate_supervision(tmp_path, monkeypatch):
+    monkeypatch.setenv("FOREMAN_MANAGED_WORKER", "1")
+    monkeypatch.setenv("FOREMAN_CONFIG", "/must/not/be/read")
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Managed workers must not route or assess again through native hooks")
+    monkeypatch.setattr("foreman.cli.ExtensionManager", forbidden)
+    result = CliRunner().invoke(
+        app, ["hook", "--data-dir", str(tmp_path)], input='{"event": "stop"}'
+    )
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == {}
+    assert not list(tmp_path.iterdir())

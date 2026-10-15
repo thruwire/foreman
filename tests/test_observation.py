@@ -97,3 +97,17 @@ async def test_observation_includes_non_secret_routing_bindings(tmp_path) -> Non
     }
     assert observation.active_extension_ids == ["example"]
     assert observation.extension_snapshot_revisions == {"example": "revision-7"}
+
+
+@pytest.mark.asyncio
+async def test_verification_lifecycle_is_in_selected_evidence(state, tmp_path):
+    state.repository = str(tmp_path)
+    state.verification_started = True
+    state.verification_completed = True
+    store = RunStore(tmp_path)
+    store.initialize(state)
+    value = await ObservationBuilder(store, FactoryConfig()).build(state)
+    selected = value.state_for(("verification",))
+    assert selected["verification_started"] is True
+    assert selected["verification_completed"] is True
+    assert "verification_completed" not in value.state_for(("git.diff",))

@@ -475,6 +475,8 @@ The most useful environment overrides are:
 | `FOREMAN_MAX_ITERATIONS` | `20` | Semantic decision ceiling |
 | `FOREMAN_MAX_CONSECUTIVE_ASSESSMENT_FAILURES` | `3` | Tolerated supervisor failures before escalation |
 | `FOREMAN_CODEX_BACKEND` | `app-server` | `app-server` for steering or `exec` fallback |
+| `FOREMAN_CODEX_EXECUTABLE` | `codex` | Codex CLI executable or absolute path |
+| `FOREMAN_CODEX_MODEL` | unset | Explicit Codex worker model; otherwise use native Codex configuration |
 | `FOREMAN_WORKER_BACKEND` | `codex` | `codex`, `opencode`, `hermes`, or `deepagents` worker backend |
 | `FOREMAN_DEEPAGENTS_EXECUTABLE` | `dcode` | Installed Deep Agents Code executable |
 | `FOREMAN_DEEPAGENTS_MODEL` | unset | Native provider/model identifier |
