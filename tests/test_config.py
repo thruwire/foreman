@@ -83,3 +83,14 @@ def test_request_soft_target_environment_overrides(monkeypatch) -> None:
 def test_invalid_soft_targets_are_rejected(field) -> None:
     with pytest.raises(ValueError):
         FactoryConfig(**{field: 0})
+
+
+def test_codex_model_and_executable_environment_are_independent(monkeypatch):
+    monkeypatch.setenv("FOREMAN_CODEX_EXECUTABLE", "/custom/codex")
+    monkeypatch.setenv("FOREMAN_CODEX_MODEL", "worker-model")
+    monkeypatch.setenv("FOREMAN_DECISION_MODEL", "decision-model")
+    config = FactoryConfig.from_environment()
+    assert config.codex_executable == "/custom/codex"
+    assert config.codex_model == "worker-model"
+    assert config.decision_model == "decision-model"
+    assert FactoryConfig().codex_model is None

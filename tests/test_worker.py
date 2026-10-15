@@ -375,3 +375,109 @@ async def test_app_server_worker_streams_item_deltas_without_repeating_payload()
 
     assert worker._record.stdout == "tests passed\ncommandExecution completed\n"
     assert len(events) == 2
+
+
+def test_codex_exec_model_is_an_explicit_argument(tmp_path):
+    command = CodexWorker(model="chosen-worker-model").command(tmp_path, "work")
+    assert command[command.index("--model") + 1] == "chosen-worker-model"
+    assert "--model" not in CodexWorker().command(tmp_path, "work")
+
+
+@pytest.mark.asyncio
+async def test_app_server_preserves_explicit_worker_model_and_reports_rejection(
+    monkeypatch, tmp_path
+):
+    process = AppServerProcess()
+    async def create(*args, **kwargs):
+        return process
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
+    worker = CodexAppServerWorker(model="account-unavailable-model")
+    async def emit(*args):
+        pass
+    task = asyncio.create_task(worker.run(record(), tmp_path, emit, 1))
+    await asyncio.sleep(0.02)
+    process.feed({"method": "turn/completed", "params": {
+        "threadId": "thread-1", "turn": {"id": "turn-1", "status": "failed", "error": {
+            "message": json.dumps({"status": 400, "error": {"type": "invalid_request_error",
+                "message": "The 'account-unavailable-model' model is not supported when using "
+                           "Codex with a ChatGPT account."}}),
+        }},
+    }})
+    result = await task
+    params = next(m["params"] for m in process.messages if m.get("method") == "thread/start")
+    assert params["model"] == "account-unavailable-model"
+    assert result.status is WorkerStatus.FAILED
+    assert "FOREMAN_CODEX_MODEL" in result.configuration_error
+    assert "No fallback" in result.configuration_error
+    assert len([m for m in process.messages if m.get("method") == "turn/start"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_completed_items_expose_actual_test_output_and_agent_conclusion():
+    from foreman.test_summary import parse_pytest_summaries
+
+    worker = CodexAppServerWorker()
+    worker._record = record()
+    async def emit(*args):
+        pass
+    worker._emit = emit
+    for item in [
+        {"id": "command", "type": "commandExecution", "command": "python -m pytest -q",
+         "aggregatedOutput": "33 passed in 0.01s\n", "exitCode": 0},
+        {"id": "patch", "type": "fileChange", "status": "completed",
+         "changes": [{"path": "calculator.py", "diff": "huge diff" * 1000}]},
+        {"id": "agent", "type": "agentMessage", "text": "Independent verification passed."},
+    ]:
+        await worker._handle_notification({"method": "item/completed", "params": {"item": item}})
+    output = worker._record.stdout
+    assert parse_pytest_summaries(output)[0].passed == 33
+    assert "exit code 0" in output
+    assert "calculator.py" in output
+    assert output.endswith("Independent verification passed.\n")
+    assert "huge diff" not in output
+    assert "aggregatedOutput" not in output
+
+
+@pytest.mark.asyncio
+async def test_unterminated_stream_summary_keeps_its_own_line():
+    from foreman.test_summary import parse_pytest_summaries
+
+    worker = CodexAppServerWorker()
+    worker._record = record()
+    async def emit(*args):
+        pass
+    worker._emit = emit
+    await worker._handle_notification({"method": "item/commandExecution/outputDelta", "params": {
+        "itemId": "command", "delta": "33 passed in 0.01s",
+    }})
+    await worker._handle_notification({"method": "item/completed", "params": {
+        "item": {"id": "command", "type": "commandExecution"},
+    }})
+    assert parse_pytest_summaries(worker._record.stdout)[0].passed == 33
+
+
+@pytest.mark.asyncio
+async def test_exec_distinguishes_provider_model_error_from_agent_text(monkeypatch, tmp_path):
+    error = {
+        "message": "The 'blocked' model is not supported when using Codex with a ChatGPT account."
+    }
+    async def emit(*args):
+        pass
+    for kind, expected in [("error", True), ("item.completed", False)]:
+        process = Process((json.dumps({"type": kind, "error": error}) + "\n").encode(), b"", 1)
+        async def create(*args, test_process=process, **kwargs):
+            return test_process
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
+        result = await CodexWorker().run(record(), tmp_path, emit, 1)
+        assert bool(result.configuration_error) is expected
+
+
+@pytest.mark.parametrize("error", [
+    {"code": "server_error", "message": "Model temporarily overloaded"},
+    {"message": "Connection reset by peer"},
+    {"message": "Invalid API key"},
+    {"message": "{not json"},
+])
+def test_transient_and_unrelated_errors_are_not_model_configuration_errors(error):
+    from foreman.workers.codex_errors import model_configuration_error
+    assert model_configuration_error(error) is None

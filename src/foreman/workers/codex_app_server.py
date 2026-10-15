@@ -12,6 +12,7 @@ from typing import Any
 from foreman.models import EventType, WorkerRecord, WorkerStatus
 from foreman.version import __version__
 from foreman.workers.base import EventCallback, codex_environment
+from foreman.workers.codex_errors import model_configuration_error
 
 
 class CodexAppServerError(RuntimeError):
@@ -27,12 +28,14 @@ class CodexAppServerWorker:
         self,
         *,
         executable: str = "codex",
+        model: str | None = None,
         sandbox: str = "workspace-write",
         output_limit: int = 50_000,
         graceful_termination_seconds: float = 5.0,
         request_timeout_seconds: float = 10.0,
     ) -> None:
         self.executable = executable
+        self.model = model
         self.sandbox = sandbox
         self.output_limit = output_limit
         self.graceful_termination_seconds = graceful_termination_seconds
@@ -176,8 +179,30 @@ class CodexAppServerWorker:
                 elif isinstance(item_id, str) and item_id in self._streamed_item_ids:
                     await self._flush_item_output(item_id)
                     text = f"{item_type} completed\n"
+                elif item_type == "agentMessage" and isinstance(item.get("text"), str):
+                    text = str(item["text"]) + "\n"
+                elif item_type == "commandExecution":
+                    output = item.get("aggregatedOutput")
+                    command = item.get("command")
+                    text = f"commandExecution completed (exit code {item.get('exitCode')})\n"
+                    if isinstance(command, str):
+                        text += f"command: {command[:1000]}\n"
+                    if isinstance(output, str):
+                        text += output + ("" if output.endswith("\n") else "\n")
+                elif item_type == "fileChange":
+                    text = f"fileChange completed ({item.get('status', 'unknown')})\n"
+                    changes = item.get("changes")
+                    if isinstance(changes, list):
+                        for change in changes[:100]:
+                            if isinstance(change, Mapping):
+                                text += f"file: {str(change.get('path', 'unknown'))[:1000]}\n"
                 else:
                     text = f"{json.dumps(dict(item), ensure_ascii=False, default=str)}\n"
+                if (
+                    self._record is not None and self._record.stdout
+                    and not self._record.stdout.endswith("\n")
+                ):
+                    text = "\n" + text
                 await self._emit_output("stdout", text)
             return
 
@@ -315,6 +340,7 @@ class CodexAppServerWorker:
                     "approvalPolicy": "never",
                     "sandbox": self.sandbox,
                     "serviceName": "foreman",
+                    **({"model": self.model} if self.model is not None else {}),
                 },
             )
             thread = thread_response.get("thread")
@@ -354,6 +380,7 @@ class CodexAppServerWorker:
                 record.termination_reason = "codex_turn_failed"
                 record.exit_code = 1
                 if error:
+                    record.configuration_error = model_configuration_error(error)
                     await self._emit_output(
                         "stderr", f"Codex turn failed: {json.dumps(error, default=str)}\n"
                     )
@@ -381,6 +408,7 @@ class CodexAppServerWorker:
             else:
                 record.status = WorkerStatus.FAILED
                 record.termination_reason = "app_server_error"
+                record.configuration_error = model_configuration_error(str(error))
                 record.exit_code = 1
                 await self._emit_output("stderr", f"{type(error).__name__}: {error}\n")
         finally:

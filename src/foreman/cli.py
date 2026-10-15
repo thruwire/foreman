@@ -312,6 +312,11 @@ def hook(
 ) -> None:
     """Process one coding-assistant hook event from stdin."""
 
+    if os.getenv("FOREMAN_MANAGED_WORKER") == "1":
+        # The owning factory already supplies routing, checks, and completion control.
+        sys.stdout.write("{}\n")
+        return
+
     extensions: ExtensionManager | None = None
     runtime_started = False
     try:

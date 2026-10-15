@@ -35,6 +35,7 @@ class WorkerRecord(BaseModel):
     stdout: str = ""
     stderr: str = ""
     termination_reason: str | None = None
+    configuration_error: str | None = Field(default=None, max_length=4000)
     client: str | None = None
     client_session_id: str | None = None
     client_turn_id: str | None = None

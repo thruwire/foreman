@@ -36,9 +36,21 @@ class FactoryPolicy:
             priority=priority,
         )
 
+    def configuration_error(self, state: FactoryState) -> Directive | None:
+        for worker in state.workers:
+            if worker.configuration_error:
+                return self._runtime_directive(
+                    state, InterventionType.ESCALATE, worker.configuration_error, priority=1000,
+                )
+        return None
+
     def evaluate(self, state: FactoryState, result: ForemanResult) -> ForemanResult:
         assert self.responsibilities is not None
         proposed = self.responsibilities.directives(state, result)
+
+        configuration_error = self.configuration_error(state)
+        if configuration_error is not None:
+            proposed.append(configuration_error)
 
         # Hard iteration limits remain a runtime invariant, not responsibility semantics.
         if self.enforce_iteration_limit and state.iteration >= state.max_iterations:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import signal
 from datetime import UTC, datetime
@@ -8,6 +9,7 @@ from pathlib import Path
 
 from foreman.models import EventType, WorkerRecord, WorkerStatus, WorkerType
 from foreman.workers.base import EventCallback, codex_environment
+from foreman.workers.codex_errors import model_configuration_error
 
 
 def coding_mission(job: str) -> str:
@@ -47,11 +49,13 @@ class CodexWorker:
         self,
         *,
         executable: str = "codex",
+        model: str | None = None,
         sandbox: str = "workspace-write",
         output_limit: int = 50_000,
         graceful_termination_seconds: float = 5.0,
     ) -> None:
         self.executable = executable
+        self.model = model
         self.sandbox = sandbox
         self.output_limit = output_limit
         self.graceful_termination_seconds = graceful_termination_seconds
@@ -69,6 +73,7 @@ class CodexWorker:
             "--color",
             "never",
             "--json",
+            *(["--model", self.model] if self.model is not None else []),
             mission,
         ]
 
@@ -146,6 +151,16 @@ class CodexWorker:
         finally:
             await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
             record.finished_at = datetime.now(UTC)
+        if record.termination_reason == "nonzero_exit":
+            for line in record.stdout.splitlines():
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(event, dict) and event.get("type") in {"error", "turn.failed"}:
+                    record.configuration_error = model_configuration_error(event)
+                    if record.configuration_error:
+                        break
         return record
 
     async def terminate(self, reason: str) -> None:

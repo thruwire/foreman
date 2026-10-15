@@ -194,3 +194,10 @@ Command evidence is likewise assistant-neutral: a Codex, Pi, or Pi Durable bridg
 lifecycle events to `foreman hook`. Foreman owns provider invocation and check-specific evidence,
 so a CLI verifier does not need a separate SDK integration for every coding assistant. See
 [Evidence providers](evidence.md).
+
+## Hooks inside managed workers
+
+`foreman run` owns the supervision of the workers it launches. It marks their process tree with
+`FOREMAN_MANAGED_WORKER=1`; native `foreman hook` commands in that tree return `{}` immediately.
+This prevents duplicate routing, assessments, and completion guidance from the attached integration.
+Ordinary attached sessions continue to use the configured native hooks. See [worker backends](workers.md).

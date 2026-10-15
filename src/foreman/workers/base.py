@@ -11,12 +11,14 @@ EventCallback = Callable[[EventType, dict[str, object]], Awaitable[None]]
 
 
 def worker_environment() -> dict[str, str]:
-    """Return the inherited environment without Foreman's dedicated decision-model credentials."""
+    """Scope decision credentials to the supervisor and mark its managed process tree."""
 
-    return {
+    environment = {
         name: value for name, value in os.environ.items()
         if not name.startswith(("TYPESAFE_", "FOREMAN_OPENAI_"))
     }
+    environment["FOREMAN_MANAGED_WORKER"] = "1"
+    return environment
 
 
 def codex_environment() -> dict[str, str]:

@@ -32,7 +32,7 @@ BUILTIN_EVIDENCE_FIELDS: dict[str, tuple[str, ...]] = {
     "git.untracked": ("untracked_evidence",),
     "repository.instructions": ("agents_md_path", "agents_md_instructions"),
     "tests": ("test_results",),
-    "verification": ("verification_results",),
+    "verification": ("verification_started", "verification_completed", "verification_results"),
     "events": ("recent_events",),
     "history": ("previous_result", "previous_intervention", "failures"),
 }

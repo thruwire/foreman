@@ -221,3 +221,34 @@ async def test_assessment_failure_budget_exhaustion_escalates(tmp_path) -> None:
     escalations = [i for i in state.intervention_history if i.action is InterventionType.ESCALATE]
     assert len(escalations) == 1
     assert "semantic assessment unavailable" in escalations[0].reason
+
+
+@pytest.mark.parametrize("backend", ["app-server", "exec"])
+def test_codex_worker_model_is_independent_of_decision_model(tmp_path, backend):
+    runtime = FactoryRuntime(
+        repository=tmp_path, job="work", model=FakeForemanModel(),
+        config=FactoryConfig(codex_backend=backend, codex_model="worker-model",
+                             codex_executable="/custom/codex", decision_model="decision-model"),
+    )
+    from foreman.models import WorkerType
+    worker = runtime._default_worker_factory(WorkerType.CODING)
+    assert worker.model == "worker-model"
+    assert worker.executable == "/custom/codex"
+
+
+@pytest.mark.asyncio
+async def test_worker_configuration_error_escalates_without_a_model_call(tmp_path):
+    from foreman.models import WorkerRecord, WorkerStatus, WorkerType
+
+    model = FakeForemanModel()
+    runtime = FactoryRuntime(repository=tmp_path, job="work", model=model)
+    runtime.store.initialize(runtime.state)
+    runtime.state.workers.append(WorkerRecord(
+        worker_id="worker-1", worker_type=WorkerType.CODING, mission="work",
+        status=WorkerStatus.FAILED, configuration_error="Choose an available model",
+    ))
+    intervention = await runtime._assess()
+    assert intervention.action is InterventionType.ESCALATE
+    assert intervention.reason == "Choose an available model"
+    assert model.calls == []
+    assert len(runtime.state.workers) == 1

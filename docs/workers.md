@@ -25,6 +25,38 @@ one capability and three coroutines:
 | Hermes | `FOREMAN_WORKER_BACKEND=hermes` | No — stop/retry only |
 | Deep Agents Code | `FOREMAN_WORKER_BACKEND=deepagents` | No — stop/retry only |
 
+## Codex executable and model
+
+By default, Foreman runs `codex` from `PATH` and leaves model selection to native Codex
+configuration. Set `FOREMAN_CODEX_EXECUTABLE` to select another installed CLI and
+`FOREMAN_CODEX_MODEL` to explicitly select the model for both coding and verifier workers.
+The same settings are available as `codex_executable` and `codex_model` in `FactoryConfig`.
+The App Server transport sends the model in `thread/start`; the exec transport passes `--model`.
+`FOREMAN_DECISION_PROVIDER` and `FOREMAN_DECISION_MODEL` configure only the router and checks.
+
+Model availability depends on the CLI version, authentication method, and account access. If Codex
+rejects a model as unavailable or unsupported, Foreman escalates immediately with configuration
+guidance. It does not choose another model or spend the retry budget repeating that request.
+Check the installed CLI version and available models, then start a new run with a supported
+configuration. Ordinary worker failures and transient transport errors keep their existing policy.
+See the official [Codex model documentation](https://learn.chatgpt.com/docs/models) and
+[CLI reference](https://learn.chatgpt.com/docs/cli/reference).
+
+## Supervision ownership and output
+
+Workers launched by `foreman run` receive `FOREMAN_MANAGED_WORKER=1`. A native `foreman hook`
+invocation in that process tree returns an empty response before loading configuration or calling
+a decision provider. The factory owns supervision for those workers, including the independent
+verifier. This prevents a second supervisor from injecting competing completion guidance.
+Standalone attached sessions retain their normal hook behavior. Custom worker implementations
+should reuse `worker_environment()` so the same ownership marker applies.
+
+The App Server transport preserves streamed output once. If Codex supplies only a completed item,
+Foreman records its actual command output and exit code, agent text, or changed paths, rather than
+an escaped copy of the full protocol object and patch. Test summaries remain readable by the
+pytest parser. Verification lifecycle flags accompany the verifier results in decision evidence;
+they do not replace the completion and test checks or change their thresholds.
+
 ## Pi and Pi Durable
 
 Pi and Pi Durable use [attached supervision through their native bridges](../integrations/pi/README.md).
@@ -70,7 +102,8 @@ for model credentials, backend settings, and the separate native-hook path.
    subprocess template: bounded streaming, `start_new_session` process
    groups, interrupt-then-kill termination).
 2. Keep the agent's environment clean: reuse `worker_environment()`, which
-   inherits the process environment minus Foreman's `TYPESAFE_*` credentials.
+   inherits the process environment minus Foreman's `TYPESAFE_*` and `FOREMAN_OPENAI_*`
+   credentials and marks factory-owned children to prevent duplicate hook supervision.
 3. Wire it into `FactoryRuntime`'s default worker factory (or pass your own
    `worker_factory`) and set `supports_steering` accurately. Unknown custom
    workers default to non-steerable for backward compatibility.

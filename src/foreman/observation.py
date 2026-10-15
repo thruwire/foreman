@@ -39,6 +39,8 @@ class FactoryObservation(BaseModel):
     agents_md_path: str | None = None
     agents_md_instructions: str = ""
     test_results: list[dict[str, Any]]
+    verification_started: bool = False
+    verification_completed: bool = False
     verification_results: list[dict[str, Any]]
     command_evidence: list[dict[str, Any]] = Field(default_factory=list)
     recent_events: list[dict[str, Any]]
@@ -146,6 +148,7 @@ def _bounded_worker(worker: WorkerRecord, output_limit: int) -> dict[str, Any]:
         "stdout_tail": _tail(worker.stdout, output_limit),
         "stderr_tail": _tail(worker.stderr, output_limit),
         "termination_reason": worker.termination_reason,
+        "configuration_error": worker.configuration_error,
         "client": worker.client,
         "client_session_id": worker.client_session_id,
         "client_turn_id": worker.client_turn_id,
@@ -402,6 +405,8 @@ async def build_observation(
                 f"{latest.stdout}\n{latest.stderr}" if latest else ""
             )
         ],
+        verification_started=state.verification_started,
+        verification_completed=state.verification_completed,
         verification_results=[
             result.model_dump(mode="json") for result in state.verification_results
         ],

@@ -77,6 +77,8 @@ class FactoryConfig(BaseModel):
     hermes_max_turns: int = Field(default=200, ge=1)
     hermes_toolsets: str | None = None
     max_consecutive_assessment_failures: int = Field(default=3, ge=1)
+    codex_executable: str = Field(default="codex", min_length=1)
+    codex_model: str | None = Field(default=None, min_length=1)
     codex_backend: Literal["app-server", "exec"] = "app-server"
     steering_enabled: bool = True
     max_steers_per_worker: int = Field(default=1, ge=0)
@@ -177,6 +179,8 @@ class FactoryConfig(BaseModel):
                 "max_consecutive_assessment_failures",
                 int,
             ),
+            "FOREMAN_CODEX_EXECUTABLE": ("codex_executable", str),
+            "FOREMAN_CODEX_MODEL": ("codex_model", str),
             "FOREMAN_CODEX_BACKEND": ("codex_backend", str),
             "FOREMAN_STEERING_ENABLED": (
                 "steering_enabled",

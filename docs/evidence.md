@@ -17,7 +17,7 @@ Foreman currently models these built-in providers:
 | `git.untracked` | Bounded, non-sensitive untracked-file excerpts |
 | `repository.instructions` | Applicable root instruction file and contents |
 | `tests` | Parsed test summaries from worker output |
-| `verification` | Independent verifier-worker results |
+| `verification` | Independent verifier-worker results and started/completed lifecycle flags |
 | `events` | Recent bounded lifecycle events |
 | `history` | Previous decision model result, intervention, and factory errors |
 
@@ -70,7 +70,8 @@ request can use the hard limits and retain optional evidence within those limits
 its entire work and question definitions and only uses hard validation.
 
 When selected evidence exceeds the effective target, Foreman drops oldest history first, then
-shortens optional strings while retaining their beginning and end. Optional
+shortens bulky worker transcripts and lifecycle output before reducing source, test, or command
+evidence. It retains the beginning and end of shortened strings. Optional
 fields can be removed as a final step. The request includes an `evidence_budget` record naming
 affected fields and explaining that omitted evidence is unknown, not evidence of success or
 absence. Compaction changes only the outgoing copy; saved session history remains intact.

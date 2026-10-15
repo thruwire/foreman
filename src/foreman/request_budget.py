@@ -43,7 +43,13 @@ PROTECTED_FIELDS = frozenset({
     "original_job", "work", "current_operation", "agents_md_path",
     "agents_md_instructions", "routing_bindings", "active_extension_ids",
     "extension_snapshot_revisions", "run_id", "factory_status", "iteration",
-    "attempts", "elapsed_factory_seconds",
+    "attempts", "elapsed_factory_seconds", "verification_started", "verification_completed",
+})
+
+
+# Reduce bulky transcripts before cutting source/test evidence in the middle.
+TRANSCRIPT_FIELDS = frozenset({
+    "active_workers", "worker_history", "latest_worker_output", "recent_events",
 })
 
 
@@ -159,7 +165,10 @@ class DecisionRequestBudget:
                         _text_candidates(value, field, result, field, candidates)
                 if not candidates:
                     break
-                _, field, parent, key, value = max(candidates, key=lambda item: item[0])
+                _, field, parent, key, value = max(
+                    candidates,
+                    key=lambda item: (item[1] in TRANSCRIPT_FIELDS and item[0] > 1024, item[0]),
+                )
                 keep = max(64, len(value) // 4)
                 parent[key] = value[:keep] + "\n[... evidence omitted ...]\n" + value[-keep:]
                 omitted.add(field)
@@ -173,7 +182,11 @@ class DecisionRequestBudget:
                 field for field in result
                 if field not in PROTECTED_FIELDS and field != "evidence_budget"
             ]
-            for field in sorted(optional, key=lambda key: json_bytes(result[key]), reverse=True):
+            for field in sorted(
+                optional,
+                key=lambda key: (key in TRANSCRIPT_FIELDS, json_bytes(result[key])),
+                reverse=True,
+            ):
                 del result[field]
                 omitted.add(field)
                 sizes = record()

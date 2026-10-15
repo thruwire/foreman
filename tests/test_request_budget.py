@@ -217,3 +217,28 @@ async def test_routing_rejects_aggregate_question_overflow_before_network_call()
     with pytest.raises(ResponsibilityRoutingError, match="whole request"):
         await router.route_groups("job", routes)
     assert client.calls == []
+
+
+@pytest.mark.parametrize("profile", ["jev", "openai"])
+def test_bulky_transcripts_do_not_hide_a_small_implementation_diff(profile):
+    from foreman.decision_models.openai import OpenAIRequestBudget
+
+    budget = JevRequestBudget() if profile == "jev" else OpenAIRequestBudget()
+    diff = "before\n" * 180 + "def square_root(value): return math.sqrt(value)\n" + "after\n" * 180
+    state = {
+        "original_job": "Add square_root, document errors, and independently verify it",
+        "git_diff": diff,
+        "latest_worker_output": "command output\n" * 1200 + "34 passed in 0.01s\n",
+        "worker_history": [{"stdout_tail": "other output\n" * 1200, "status": "completed"}],
+        "test_results": [{"passed": 34, "failed": 0}],
+        "verification_started": True,
+        "verification_completed": True,
+    }
+    before = copy.deepcopy(state)
+    fitted = budget.fit(state, {"complete": "Is the implementation complete?"})
+    assert fitted.state["git_diff"] == diff
+    assert fitted.state["test_results"] == state["test_results"]
+    assert fitted.state["verification_completed"] is True
+    assert fitted.measurements["pair_bytes"] <= 12_000
+    assert "latest_worker_output" in fitted.state["evidence_budget"]["omitted_fields"]
+    assert state == before
