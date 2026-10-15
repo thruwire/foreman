@@ -117,8 +117,3 @@ envelope differs, then compose `DecisionForemanModel` and `DecisionResponsibilit
 adapter. Add configuration selection and offline contract tests for successful predicates, refusals,
 malformed responses, deadlines, and client ownership. No worker or policy changes are needed to
 support a provider with the same predicate semantics.
-
-## Validation evidence
-
-See [adapter validation](decision-model-validation.md) for offline coverage, live Jev results,
-and the pending OpenAI live test.
